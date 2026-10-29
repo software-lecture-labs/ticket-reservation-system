@@ -124,6 +124,4 @@ Uçlar, durum kodları ve hata biçimi: [docs/API.md](docs/API.md).
 dev → feature/<konu> → Pull Request → test + başka üyenin incelemesi → dev
 ```
 
-Örnek dal adları ve commit kuralları: [CONTRIBUTING.md](CONTRIBUTING.md). Her üye kendi hesabından gerçek katkısını commit etmelidir; iskeletin tek seferde eklenmesi düzenli dönem katkısının yerine geçmez.
-
 Teknoloji kaynakları: [Payara sürümleri](https://github.com/payara/Payara/releases), [desteklenen JDK'lar](https://docs.azul.com/payara-community/general-info/supported-platforms.html), [Maven Wrapper](https://maven.apache.org/tools/wrapper/).
