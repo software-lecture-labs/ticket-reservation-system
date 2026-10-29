@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE resources PUBLIC "-//Payara.fish//DTD Payara 7 Application Server 1.8-1//EN"
+    "https://www.payara.fish/dtds/payara7-resources_1_8-1.dtd">
+<resources>
+  <jdbc-connection-pool name="TicketPool" res-type="javax.sql.DataSource"
+                        datasource-classname="org.postgresql.ds.PGSimpleDataSource"
+                        max-pool-size="16" steady-pool-size="2">
+    <property name="serverName" value="${ENV=DB_HOST:localhost}"/>
+    <property name="portNumber" value="${ENV=DB_PORT:5432}"/>
+    <property name="databaseName" value="${ENV=DB_NAME:tickets}"/>
+    <property name="user" value="${ENV=DB_USER:tickets}"/>
+    <property name="password" value="${ENV=DB_PASSWORD}"/>
+  </jdbc-connection-pool>
+  <jdbc-resource jndi-name="java:app/jdbc/TicketDS" pool-name="TicketPool"/>
+</resources>
