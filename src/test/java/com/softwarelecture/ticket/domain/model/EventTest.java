@@ -14,7 +14,7 @@ class EventTest {
     private static final Instant NOW = Instant.parse("2030-01-01T12:00:00Z");
 
     private Event event(int capacity) {
-        return new Event("Konser", "Sahne", NOW.plusSeconds(3600), capacity, new BigDecimal("125.50"));
+        return Event.create("Konser", "Sahne", NOW.plusSeconds(3600), capacity, new BigDecimal("125.50"));
     }
 
     @Test
@@ -63,8 +63,8 @@ class EventTest {
     @Test
     void rejectsInvalidEventConfiguration() {
         assertThrows(DomainException.class, () -> event(0));
-        assertThrows(DomainException.class, () -> new Event(" ", "Sahne", NOW, 5, BigDecimal.ONE));
-        assertThrows(DomainException.class, () -> new Event("Konser", "Sahne", NOW, 5, new BigDecimal("-1")));
-        assertThrows(DomainException.class, () -> new Event("Konser", "Sahne", NOW, 5, new BigDecimal("1.001")));
+        assertThrows(DomainException.class, () -> Event.create(" ", "Sahne", NOW, 5, BigDecimal.ONE));
+        assertThrows(DomainException.class, () -> Event.create("Konser", "Sahne", NOW, 5, new BigDecimal("-1")));
+        assertThrows(DomainException.class, () -> Event.create("Konser", "Sahne", NOW, 5, new BigDecimal("1.001")));
     }
 }

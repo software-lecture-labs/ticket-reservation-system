@@ -32,7 +32,7 @@ class ReservationServiceTest {
 
     @BeforeEach
     void setUp() throws ReflectiveOperationException {
-        Event event = new Event("Konser", "Sahne", NOW.plusSeconds(3600), 5, new BigDecimal("150.00"));
+        Event event = Event.create("Konser", "Sahne", NOW.plusSeconds(3600), 5, new BigDecimal("150.00"));
         // Simulate the identity normally assigned when JPA loads a persisted event.
         Field identity = Event.class.getDeclaredField("id");
         identity.setAccessible(true);

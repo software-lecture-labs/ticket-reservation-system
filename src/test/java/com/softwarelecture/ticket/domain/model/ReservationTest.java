@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ReservationTest {
     private Reservation reservation() {
-        return new Reservation(1L, "Ada Yılmaz", "ada@example.com", 3,
+        return Reservation.create(1L, "Ada Yılmaz", "ada@example.com", 3,
                 new BigDecimal("125.50"), Instant.parse("2030-01-01T12:00:00Z"));
     }
 
@@ -33,9 +33,9 @@ class ReservationTest {
 
     @Test
     void rejectsMissingCustomer() {
-        assertThrows(DomainException.class, () -> new Reservation(1L, " ", "ada@example.com", 1,
+        assertThrows(DomainException.class, () -> Reservation.create(1L, " ", "ada@example.com", 1,
                 BigDecimal.ONE, Instant.now()));
-        assertThrows(DomainException.class, () -> new Reservation(1L, "Ada", "invalid", 1,
+        assertThrows(DomainException.class, () -> Reservation.create(1L, "Ada", "invalid", 1,
                 BigDecimal.ONE, Instant.now()));
     }
 }

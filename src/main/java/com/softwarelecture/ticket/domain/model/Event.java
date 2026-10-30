@@ -36,7 +36,22 @@ public class Event {
         // JPA constructor.
     }
 
-    public Event(String title, String venue, Instant startsAt, int capacity, BigDecimal ticketPrice) {
+    private Event(String title, String venue, Instant startsAt, int capacity, BigDecimal ticketPrice) {
+        this.title = title;
+        this.venue = venue;
+        this.startsAt = startsAt;
+        this.capacity = capacity;
+        this.availableSeats = capacity;
+        this.ticketPrice = ticketPrice;
+    }
+
+    public static Event create(String title, String venue, Instant startsAt, int capacity, BigDecimal ticketPrice) {
+        validateConfiguration(title, venue, startsAt, capacity, ticketPrice);
+        return new Event(title.trim(), venue.trim(), startsAt, capacity, ticketPrice);
+    }
+
+    private static void validateConfiguration(
+            String title, String venue, Instant startsAt, int capacity, BigDecimal ticketPrice) {
         if (title == null || title.isBlank() || title.length() > 150
                 || venue == null || venue.isBlank() || venue.length() > 200
                 || startsAt == null || capacity < 1 || ticketPrice == null
@@ -44,12 +59,6 @@ public class Event {
                 || ticketPrice.compareTo(new BigDecimal("9999999999.99")) > 0) {
             throw new DomainException(DomainException.Kind.VALIDATION, "Etkinlik bilgileri geçersiz.");
         }
-        this.title = title.trim();
-        this.venue = venue.trim();
-        this.startsAt = startsAt;
-        this.capacity = capacity;
-        this.availableSeats = capacity;
-        this.ticketPrice = ticketPrice;
     }
 
     public void reserve(int quantity, Instant now) {

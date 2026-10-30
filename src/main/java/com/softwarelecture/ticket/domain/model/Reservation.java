@@ -39,23 +39,40 @@ public class Reservation {
         // JPA constructor.
     }
 
-    public Reservation(Long eventId, String customerName, String customerEmail,
-                       int quantity, BigDecimal unitPrice, Instant createdAt) {
+    private Reservation(UUID id, Long eventId, String customerName, String customerEmail,
+                        int quantity, BigDecimal totalPrice, Instant createdAt) {
+        this.id = id;
+        this.eventId = eventId;
+        this.customerName = customerName;
+        this.customerEmail = customerEmail;
+        this.quantity = quantity;
+        this.totalPrice = totalPrice;
+        this.status = ReservationStatus.ACTIVE;
+        this.createdAt = createdAt;
+    }
+
+    public static Reservation create(Long eventId, String customerName, String customerEmail,
+                                     int quantity, BigDecimal unitPrice, Instant createdAt) {
         Event.validateQuantity(quantity);
+        validateInputs(eventId, customerName, customerEmail, unitPrice, createdAt);
+        return new Reservation(
+                UUID.randomUUID(),
+                eventId,
+                customerName.trim(),
+                customerEmail.trim(),
+                quantity,
+                unitPrice.multiply(BigDecimal.valueOf(quantity)),
+                createdAt);
+    }
+
+    private static void validateInputs(
+            Long eventId, String customerName, String customerEmail, BigDecimal unitPrice, Instant createdAt) {
         if (eventId == null || eventId < 1 || customerName == null || customerName.isBlank()
                 || customerName.length() > 100 || customerEmail == null || customerEmail.isBlank()
                 || customerEmail.length() > 254 || !customerEmail.contains("@")
                 || unitPrice == null || unitPrice.signum() < 0 || createdAt == null) {
             throw new DomainException(DomainException.Kind.VALIDATION, "Rezervasyon bilgileri geçersiz.");
         }
-        this.id = UUID.randomUUID();
-        this.eventId = eventId;
-        this.customerName = customerName.trim();
-        this.customerEmail = customerEmail.trim();
-        this.quantity = quantity;
-        this.totalPrice = unitPrice.multiply(BigDecimal.valueOf(quantity));
-        this.status = ReservationStatus.ACTIVE;
-        this.createdAt = createdAt;
     }
 
     public void cancel() {

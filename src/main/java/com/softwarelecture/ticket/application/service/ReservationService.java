@@ -40,7 +40,7 @@ public class ReservationService {
                 new DomainException(DomainException.Kind.NOT_FOUND, "Etkinlik bulunamadı."));
         Instant now = clock.instant();
         // Validate the reservation before changing inventory. Both writes still share one JTA transaction.
-        Reservation reservation = new Reservation(event.getId(), command.customerName(), command.customerEmail(),
+        Reservation reservation = Reservation.create(event.getId(), command.customerName(), command.customerEmail(),
                 command.quantity(), event.getTicketPrice(), now);
         event.reserve(command.quantity(), now);
         reservations.save(reservation);
