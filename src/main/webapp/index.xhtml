@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:h="jakarta.faces.html" xmlns:f="jakarta.faces.core" lang="tr">
+<h:head>
+  <title>Bilet Rezervasyon | Dönem Projesi</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <h:outputStylesheet library="css" name="app.css"/>
+</h:head>
+<h:body>
+  <main>
+    <header><span>DÖNEM PROJESİ · JAVA / JAKARTA EE</span><h1>Bir sonraki etkinliğine yer ayır.</h1>
+      <p>Biletinial / Biletix tarzı etkinlik rezervasyon klonunun başlangıç uygulaması.</p></header>
+    <h:messages styleClass="messages"/>
+    <section aria-labelledby="events-title">
+      <h2 id="events-title">Yaklaşan etkinlikler</h2>
+      <h:dataTable value="#{bookingView.upcomingEvents}" var="event" styleClass="events">
+        <h:column><f:facet name="header">Etkinlik</f:facet><h:outputText value="#{event.title}"/></h:column>
+        <h:column><f:facet name="header">Mekân</f:facet><h:outputText value="#{event.venue}"/></h:column>
+        <h:column><f:facet name="header">Tarih (UTC)</f:facet><h:outputText value="#{event.startsAt}"/></h:column>
+        <h:column><f:facet name="header">Kalan</f:facet><h:outputText value="#{event.availableSeats}"/></h:column>
+        <h:column><f:facet name="header">Fiyat (TL)</f:facet><h:outputText value="#{event.ticketPrice}"/></h:column>
+      </h:dataTable>
+    </section>
+    <div class="forms">
+      <section aria-labelledby="booking-title"><h2 id="booking-title">Rezervasyon yap</h2>
+        <h:form id="booking">
+          <h:outputLabel for="event" value="Etkinlik"/>
+          <h:selectOneMenu id="event" value="#{bookingView.eventId}" required="true">
+            <f:selectItem itemLabel="Etkinlik seçin" itemValue="#{null}" noSelectionOption="true"/>
+            <f:selectItems value="#{bookingView.upcomingEvents}" var="event" itemValue="#{event.id}" itemLabel="#{event.title}"/>
+          </h:selectOneMenu>
+          <h:outputLabel for="name" value="Ad soyad"/>
+          <h:inputText id="name" value="#{bookingView.customerName}" required="true" maxlength="100"/>
+          <h:outputLabel for="email" value="E-posta"/>
+          <h:inputText id="email" value="#{bookingView.customerEmail}" required="true" maxlength="254"/>
+          <h:outputLabel for="quantity" value="Bilet adedi (1–10)"/>
+          <h:inputText id="quantity" value="#{bookingView.quantity}" required="true"/>
+          <h:commandButton value="Yerimi ayır" action="#{bookingView.book}"/>
+        </h:form>
+      </section>
+      <section aria-labelledby="cancel-title"><h2 id="cancel-title">Rezervasyon iptali</h2>
+        <p>Rezervasyon sırasında verilen numarayı kullanın.</p>
+        <h:form id="cancel">
+          <h:outputLabel for="reference" value="Rezervasyon numarası"/>
+          <h:inputText id="reference" value="#{bookingView.reservationId}" required="true" maxlength="36"/>
+          <h:commandButton value="Rezervasyonu iptal et" action="#{bookingView.cancel}" styleClass="secondary"/>
+        </h:form>
+        <h:panelGroup rendered="#{not empty bookingView.resultId}" layout="block" styleClass="receipt">
+          <p>Numara: <h:outputText value="#{bookingView.resultId}"/></p>
+          <p>Durum: <h:outputText value="#{bookingView.resultStatus}"/></p>
+          <p>Toplam: <h:outputText value="#{bookingView.resultTotalPrice}"/> TL</p>
+        </h:panelGroup>
+      </section>
+    </div>
+    <footer>İskelet sürüm · Ödeme ve üyelik modülleri ekip geliştirmesine ayrılmıştır.</footer>
+  </main>
+</h:body>
+</html>

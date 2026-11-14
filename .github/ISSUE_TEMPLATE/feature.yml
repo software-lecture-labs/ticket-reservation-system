@@ -1,0 +1,22 @@
+name: Ekip geliştirme görevi
+description: Altı kişilik plandaki bir işi takip et
+title: "[Üye N] "
+body:
+  - type: input
+    id: owner
+    attributes:
+      label: Sorumlu ve GitHub hesabı
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Kapsam ve ilgili dosyalar
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Kabul ölçütleri ve test senaryoları
+    validations:
+      required: true

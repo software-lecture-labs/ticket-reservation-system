@@ -22,3 +22,16 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Local tools, build output and IDE files
+.tools/
+.m2/
+target/
+.idea/
+.vscode/
+*.iml
+.env
+!.env.example
+.DS_Store
+__pycache__/
+*.pyc
