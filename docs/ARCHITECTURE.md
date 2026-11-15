@@ -45,6 +45,13 @@ Unit testler domain/servis kurallarını doğrular; JTA'nın gerçekten rollback
 ```mermaid
 erDiagram
   EVENTS ||--o{ RESERVATIONS : contains
+  USERS o|--o{ RESERVATIONS : owns
+  USERS {
+    uuid id PK
+    varchar email UK
+    varchar password_hash
+    varchar role
+  }
   EVENTS {
     bigint id PK
     varchar title
@@ -58,6 +65,7 @@ erDiagram
   RESERVATIONS {
     uuid id PK
     bigint event_id FK
+    uuid user_id FK
     varchar customer_name
     varchar customer_email
     int quantity
@@ -68,4 +76,12 @@ erDiagram
   }
 ```
 
-Zamanlar UTC `Instant`, para TL cinsinden `BigDecimal` olarak tutulur. Ödeme eklenirken `Payment`, `Ticket` ve kullanıcı/koltuk tabloları sürümlü migration ile eklenir. Mevcut kontenjan modeli numaralı koltuk seçimi sunmaz.
+Zamanlar UTC `Instant`, para TL cinsinden `BigDecimal` olarak tutulur. Ödeme eklenirken `Payment`, `Ticket` ve koltuk tabloları sürümlü migration ile eklenir. Mevcut kontenjan modeli numaralı koltuk seçimi sunmaz.
+
+## Kimlik, roller ve rezervasyon sahipliği
+
+`CurrentAccount` oturum özetini, Jakarta Security principal adını ve container rolünü eşleştirir. REST filtresi kimlik ve CSRF kontrolünü istek gövdesi doğrulamasından önce yapar. Faces formu aynı oturum belirtecini gizli alandan doğrular. Her iki giriş noktası servise aynı güvenilir kullanıcı UUID’sini iletir.
+
+`ReservationService.create(userId, command)` sahipliği yeni kayda yazar. `find(userId, id)` ve `cancel(userId, id)` için repository `id` ve `userId` koşullarını birlikte kullanır. İptal bu sorguda yazma kilidini alır. Sahip eşleşmezse yalnızca kaydın varlığı sınanır; kişisel alanlar okunmaz. Varlığı bilinen yabancı kayıt 403, kayıp kayıt 404 üretir. İzin reddi stok veya durum güncellenmeden önce gerçekleşir. Sayfalı liste, koltuk ve ödeme işleri ilgili ekip paketlerindedir.
+
+Üye 1 için dört dakikalık demo: ilk dakika kayıt ve tekrar kayıt; ikinci dakika giriş, oturum ve `/me`; üçüncü dakika iki hesapla rezervasyon ve başka sahibin 403 yanıtı; son dakika yetkili iptal, stok iadesi ve çıkış. Yönetim CRUD demosu Üye 2’nin uçlarıyla tamamlanacaktır.
