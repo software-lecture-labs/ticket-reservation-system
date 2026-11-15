@@ -1,14 +1,20 @@
 package com.softwarelecture.ticket.presentation.security;
 
 import com.softwarelecture.ticket.application.dto.RegisteredUser;
+import com.softwarelecture.ticket.domain.exception.DomainException;
 import jakarta.security.enterprise.AuthenticationStatus;
+import jakarta.security.enterprise.SecurityContext;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.ResourceInfo;
 import jakarta.security.enterprise.authentication.mechanism.http.AuthenticationParameters;
 import jakarta.security.enterprise.authentication.mechanism.http.HttpMessageContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Proxy;
+import java.security.Principal;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -93,6 +99,91 @@ class SessionSecurityTest {
                 default -> throw new AssertionError(method);
             }
         });
+    }
+
+    private static void inject(Object target, String name, Object value) throws ReflectiveOperationException {
+        Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static CurrentAccount account(HttpSession session, Principal principal, String containerRole)
+            throws ReflectiveOperationException {
+        CurrentAccount account = new CurrentAccount();
+        inject(account, "request", request(session, null));
+        inject(account, "security", stub(SecurityContext.class, (proxy, method, args) -> switch (method.getName()) {
+            case "getCallerPrincipal" -> principal;
+            case "isCallerInRole" -> args[0].equals(containerRole);
+            default -> throw new AssertionError(method);
+        }));
+        return account;
+    }
+
+    @Test
+    void rejectsMissingOrInconsistentIdentity() throws ReflectiveOperationException {
+        UUID id = UUID.randomUUID();
+        Principal principal = id::toString;
+        HttpSession session = session();
+        CurrentAccount resolved = account(session, principal, "USER");
+        assertDenied(DomainException.Kind.UNAUTHENTICATED, account(null, principal, "USER")::require);
+        assertDenied(DomainException.Kind.UNAUTHENTICATED, resolved::require);
+        session.setAttribute(CurrentAccount.SESSION_KEY, new RegisteredUser(null, "member@example.com", "USER"));
+        assertDenied(DomainException.Kind.UNAUTHENTICATED, resolved::require);
+        session.setAttribute(CurrentAccount.SESSION_KEY, new RegisteredUser(id, "member@example.com", "USER"));
+        assertDenied(DomainException.Kind.UNAUTHENTICATED, account(session, null, "USER")::require);
+        assertDenied(DomainException.Kind.UNAUTHENTICATED, account(session, () -> "unknown", "USER")::require);
+        assertDenied(DomainException.Kind.UNAUTHENTICATED, account(session, UUID.randomUUID()::toString, "USER")::require);
+        assertDenied(DomainException.Kind.FORBIDDEN, account(session, principal, "ADMIN")::require);
+        session.setAttribute(CurrentAccount.SESSION_KEY, new RegisteredUser(id, "member@example.com", "OTHER"));
+        assertDenied(DomainException.Kind.FORBIDDEN, account(session, principal, "OTHER")::require);
+    }
+
+    private static void assertDenied(DomainException.Kind kind, Runnable operation) {
+        assertEquals(kind, assertThrows(DomainException.class, operation::run).getKind());
+    }
+
+    @ProtectedOperation
+    private static class Operations {
+        public void read() { }
+
+        @ProtectedOperation(adminOnly = true)
+        public void manage() { }
+    }
+
+    private static void authorize(CurrentAccount account, HttpServletRequest request, String operation, String verb)
+            throws ReflectiveOperationException {
+        AuthorizationFilter filter = new AuthorizationFilter();
+        inject(filter, "account", account);
+        inject(filter, "request", request);
+        inject(filter, "resource", stub(ResourceInfo.class, (proxy, method, args) -> switch (method.getName()) {
+            case "getResourceClass" -> Operations.class;
+            case "getResourceMethod" -> Operations.class.getMethod(operation);
+            default -> throw new AssertionError(method);
+        }));
+        filter.filter(stub(ContainerRequestContext.class, (proxy, method, args) -> {
+            assertEquals("getMethod", method.getName());
+            return verb;
+        }));
+    }
+
+    @Test
+    void checksContainerRoleBeforeCsrfOnManagementOperations() throws ReflectiveOperationException {
+        HttpSession session = session();
+        UUID id = UUID.randomUUID();
+        session.setAttribute(CurrentAccount.SESSION_KEY, new RegisteredUser(id, "member@example.com", "USER"));
+        CurrentAccount user = account(session, id::toString, "USER");
+        authorize(user, request(session, null), "read", "GET");
+        assertEquals(DomainException.Kind.FORBIDDEN, assertThrows(DomainException.class,
+                () -> authorize(user, request(session, null), "manage", "POST")).getKind());
+        session.setAttribute(CurrentAccount.SESSION_KEY, new RegisteredUser(id, "member@example.com", "ADMIN"));
+        assertDenied(DomainException.Kind.FORBIDDEN, user::requireAdmin);
+        CurrentAccount admin = account(session, id::toString, "ADMIN");
+        String token = SessionCsrf.token(session);
+        for (String invalid : new String[]{null, SessionCsrf.token(session())}) {
+            assertEquals(DomainException.Kind.CSRF, assertThrows(DomainException.class,
+                    () -> authorize(admin, request(session, invalid), "manage", "POST")).getKind());
+        }
+        authorize(admin, request(session, token), "manage", "POST");
     }
 
     @Test
