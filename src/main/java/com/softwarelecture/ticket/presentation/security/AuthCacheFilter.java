@@ -9,7 +9,7 @@ import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
-@WebFilter("/api/auth/*")
+@WebFilter(urlPatterns = {"/api/auth/*", "/api/reservations", "/api/reservations/*"})
 public class AuthCacheFilter implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)

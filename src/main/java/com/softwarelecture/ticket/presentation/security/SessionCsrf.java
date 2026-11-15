@@ -24,8 +24,10 @@ public final class SessionCsrf {
     }
 
     public static boolean accepts(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        String supplied = request.getHeader("X-CSRF-Token");
+        return accepts(request.getSession(false), request.getHeader("X-CSRF-Token"));
+    }
+
+    public static boolean accepts(HttpSession session, String supplied) {
         return session != null && supplied != null && session.getAttribute(ATTRIBUTE) instanceof String expected
                 && supplied.length() == expected.length()
                 && MessageDigest.isEqual(expected.getBytes(StandardCharsets.US_ASCII),

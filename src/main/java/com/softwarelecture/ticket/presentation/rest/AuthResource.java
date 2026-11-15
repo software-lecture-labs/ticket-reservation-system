@@ -7,6 +7,7 @@ import com.softwarelecture.ticket.presentation.rest.dto.CredentialsRequest;
 import com.softwarelecture.ticket.presentation.rest.dto.UserResponse;
 import com.softwarelecture.ticket.presentation.security.SessionAuthentication.VerifiedIdentity;
 import com.softwarelecture.ticket.presentation.security.SessionCsrf;
+import com.softwarelecture.ticket.presentation.security.CurrentAccount;
 import jakarta.inject.Inject;
 import jakarta.security.enterprise.AuthenticationStatus;
 import jakarta.security.enterprise.SecurityContext;
@@ -30,7 +31,8 @@ import java.util.Optional;
 @Consumes(MediaType.APPLICATION_JSON)
 @Produces(MediaType.APPLICATION_JSON)
 public class AuthResource {
-    private static final String USER_ATTRIBUTE = RegisteredUser.class.getName();
+    @Inject
+    private CurrentAccount account;
     @Inject
     private SecurityContext security;
     @Inject
@@ -65,21 +67,14 @@ public class AuthResource {
             clearSession(request);
             return unauthorized();
         }
-        session.setAttribute(USER_ATTRIBUTE, user);
+        session.setAttribute(CurrentAccount.SESSION_KEY, user);
         return Response.ok(new UserResponse(user)).build();
     }
 
     @GET
     @Path("/me")
-    public Response me(@Context HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        if (session != null && session.getAttribute(USER_ATTRIBUTE) instanceof RegisteredUser user
-                && security.getCallerPrincipal() != null
-                && user.id().toString().equals(security.getCallerPrincipal().getName())
-                && security.isCallerInRole(user.role())) {
-            return Response.ok(new UserResponse(user)).build();
-        }
-        return unauthorized();
+    public Response me() {
+        return Response.ok(new UserResponse(account.require())).build();
     }
 
     @POST
