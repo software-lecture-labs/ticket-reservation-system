@@ -1,3 +1,5 @@
 {$APP_DOMAIN} {
-    reverse_proxy app:8080
+    reverse_proxy app:8080 {
+        header_down Set-Cookie "^(JSESSIONID=.*)$" "$1; Secure"
+    }
 }
