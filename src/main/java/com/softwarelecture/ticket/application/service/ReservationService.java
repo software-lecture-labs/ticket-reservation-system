@@ -31,7 +31,8 @@ public class ReservationService {
         this.clock = clock;
     }
 
-    public Reservation create(CreateReservation command) {
+    public Reservation create(UUID userId, CreateReservation command) {
+        requireUser(userId);
         if (command == null || command.eventId() == null || command.eventId() < 1) {
             throw new DomainException(DomainException.Kind.VALIDATION, "Geçerli bir etkinlik kimliği ve istek gövdesi gerekli.");
         }
@@ -40,26 +41,37 @@ public class ReservationService {
                 new DomainException(DomainException.Kind.NOT_FOUND, "Etkinlik bulunamadı."));
         Instant now = clock.instant();
         // Validate the reservation before changing inventory. Both writes still share one JTA transaction.
-        Reservation reservation = Reservation.create(event.getId(), command.customerName(), command.customerEmail(),
+        Reservation reservation = Reservation.create(userId, event.getId(), command.customerName(), command.customerEmail(),
                 command.quantity(), event.getTicketPrice(), now);
         event.reserve(command.quantity(), now);
         reservations.save(reservation);
         return reservation;
     }
 
-    public Reservation find(UUID id) {
-        return reservations.findById(id).orElseThrow(() ->
-                new DomainException(DomainException.Kind.NOT_FOUND, "Rezervasyon bulunamadı."));
+    public Reservation find(UUID userId, UUID id) {
+        return owned(userId, id, false);
     }
 
-    public Reservation cancel(UUID id) {
+    public Reservation cancel(UUID userId, UUID id) {
         // Lock the existing reservation first so a repeated cancellation cannot return seats twice.
-        Reservation reservation = reservations.findByIdForUpdate(id).orElseThrow(() ->
-                new DomainException(DomainException.Kind.NOT_FOUND, "Rezervasyon bulunamadı."));
+        Reservation reservation = owned(userId, id, true);
         Event event = events.findByIdForUpdate(reservation.getEventId()).orElseThrow(() ->
                 new DomainException(DomainException.Kind.NOT_FOUND, "Etkinlik bulunamadı."));
         reservation.cancel();
         event.release(reservation.getQuantity(), clock.instant());
         return reservation;
+    }
+
+    private Reservation owned(UUID userId, UUID id, boolean forUpdate) {
+        requireUser(userId);
+        return reservations.findOwned(id, userId, forUpdate).orElseThrow(() -> reservations.exists(id)
+                ? new DomainException(DomainException.Kind.FORBIDDEN, "Bu işleme erişim izniniz yok.")
+                : new DomainException(DomainException.Kind.NOT_FOUND, "Rezervasyon bulunamadı."));
+    }
+
+    private static void requireUser(UUID userId) {
+        if (userId == null) {
+            throw new DomainException(DomainException.Kind.UNAUTHENTICATED, "Oturum gerekli.");
+        }
     }
 }

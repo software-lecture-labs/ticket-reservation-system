@@ -6,6 +6,9 @@ import com.softwarelecture.ticket.application.service.ReservationService;
 import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Event;
 import com.softwarelecture.ticket.domain.model.Reservation;
+import com.softwarelecture.ticket.presentation.security.CurrentAccount;
+import com.softwarelecture.ticket.presentation.security.SessionCsrf;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.faces.application.FacesMessage;
 import jakarta.faces.context.FacesContext;
@@ -27,6 +30,10 @@ public class BookingView {
     private EventService events;
     @Inject
     private ReservationService reservations;
+    @Inject
+    private CurrentAccount account;
+    @Inject
+    private HttpServletRequest request;
 
     private Long eventId;
     @Min(1)
@@ -44,7 +51,7 @@ public class BookingView {
 
     public void book() {
         try {
-            result = reservations.create(new CreateReservation(eventId, customerName, customerEmail, quantity));
+            result = reservations.create(formOwner(), new CreateReservation(eventId, customerName, customerEmail, quantity));
             reservationId = result.getId().toString();
             message(FacesMessage.SEVERITY_INFO, "Rezervasyon oluşturuldu. Numaranızı kaydedin: " + reservationId);
         } catch (DomainException exception) {
@@ -54,13 +61,25 @@ public class BookingView {
 
     public void cancel() {
         try {
-            result = reservations.cancel(UUID.fromString(reservationId));
+            result = reservations.cancel(formOwner(), UUID.fromString(reservationId));
             message(FacesMessage.SEVERITY_INFO, "Rezervasyon iptal edildi; kontenjan iade edildi.");
         } catch (IllegalArgumentException exception) {
             message(FacesMessage.SEVERITY_ERROR, "Geçerli bir rezervasyon numarası girin.");
         } catch (DomainException exception) {
             message(FacesMessage.SEVERITY_ERROR, exception.getMessage());
         }
+    }
+
+    public String getCsrfToken() {
+        return SessionCsrf.token(request.getSession());
+    }
+
+    private UUID formOwner() {
+        UUID owner = account.require().id();
+        if (!SessionCsrf.accepts(request.getSession(false), request.getParameter("csrfToken"))) {
+            throw new DomainException(DomainException.Kind.CSRF, "Oturum belirteci geçersiz.");
+        }
+        return owner;
     }
 
     private void message(FacesMessage.Severity severity, String text) {

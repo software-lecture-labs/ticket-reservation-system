@@ -3,7 +3,7 @@ package com.softwarelecture.ticket.domain.exception;
 public class DomainException extends RuntimeException {
     private static final long serialVersionUID = 1L;
 
-    public enum Kind { VALIDATION, NOT_FOUND, CONFLICT }
+    public enum Kind { VALIDATION, NOT_FOUND, CONFLICT, UNAUTHENTICATED, FORBIDDEN, CSRF }
 
     private final Kind kind;
 

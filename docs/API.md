@@ -5,13 +5,99 @@ Taban: `http://localhost:8080/api`. JSON ve UTF-8 kullanılır. Tarihler ISO 860
 | Metot | Yol | Başarılı yanıt |
 |---|---|---|
 | GET | `/health` | `200`, uygulama + veritabanı erişimi |
+| POST | `/auth/register` | `201`, yeni kullanıcının kimliği, e-postası ve rolü |
+| GET | `/auth/csrf` | `200`, mevcut veya yeni oturuma ait CSRF belirteci |
+| POST | `/auth/login` | `200`, doğrulanmış kullanıcı |
+| GET | `/auth/me` | `200`, aktif kullanıcı |
+| POST | `/auth/logout` | `204`, boş gövde |
 | GET | `/events` | `200`, gelecek en fazla 100 etkinlik, tarihe göre |
 | GET | `/events/{id}` | `200`, etkinlik detayı |
 | POST | `/reservations` | `201`, rezervasyon ve `Location` header |
 | GET | `/reservations/{uuid}` | `200`, rezervasyon özeti |
 | POST | `/reservations/{uuid}/cancel` | `200`, `CANCELLED` rezervasyon |
 
-## Oluşturma
+## Kullanıcı kaydı
+
+`POST /api/auth/register` iki JSON alanı kabul eder. E-posta başındaki ve sonundaki boşluklar temizlenir ve adres küçük harfe çevrilir. Noktayla ayrılmış alan adına sahip ASCII e-posta adresleri desteklenir. Parola boşluklardan ibaret olamaz ve 15–128 Unicode kod noktası içermelidir. Parola olduğu gibi işlenir.
+
+```json
+{"email":" Ada@Example.com ","password":"sadece örnek için parola"}
+```
+
+Başarılı yanıt (`201 Created`) aşağıdaki biçimdedir.
+
+```json
+{"id":"9d034072-0dbc-4e4b-b4d5-ee29241eff8d","email":"ada@example.com","role":"USER"}
+```
+
+Eksik veya geçersiz alanlar `400 VALIDATION`, aynı normalize adrese sonraki veya eşzamanlı kayıt `409 CONFLICT` döndürür. Rolü sunucu atar. Üye 5 kayıt ekranında bu yanıtı kullanabilir. Kayıt oturum açmaz.
+
+### Üye 5 için giriş ve çıkış akışı
+
+1. Aynı origin üzerinden `GET /api/auth/csrf` çağırın. Yanıt `{"token":"…"}` biçimindedir. Tarayıcı `JSESSIONID` çerezini yönetir. Belirteci sayfa belleğinde tutun.
+2. `POST /api/auth/login` isteğinde `Content-Type: application/json` ve `X-CSRF-Token` başlığını gönderin. Gövde örneği `{"email":"ada@example.com","password":"sadece örnek için parola"}`. Başarı yanıtı kayıt örneğindeki `id`, `email` ve `role` alanlarıyla HTTP 200 döner. Başarılı giriş eski oturumu ve CSRF belirtecini geçersiz kılar.
+3. Sayfa açılırken `GET /api/auth/me` ile durumu okuyun. Sunucu, döndürdüğü UUID ve rolü Jakarta Security bağlamında kontrol eder. Anonim kullanıcı HTTP 401 alır. Üye 3, rezervasyon sahipliğini denetlerken sunucudaki caller principal adını (`users.id` UUID) kullanabilir. Container, veritabanından gelen `USER` veya `ADMIN` grubunu aynı isimli role eşler.
+4. Çıkış öncesi yeni oturum için tekrar `GET /api/auth/csrf` çağırın. Belirteci başlığa koyarak boş gövdeli `POST /api/auth/logout` gönderin. Başarı ve geçerli oturumu kalmamış bir istemcinin tekrar çıkışı HTTP 204 döner. Var olan anonim oturumu da sonlandırmak için o oturumun belirteci gerekir.
+
+Geçerli CSRF belirteciyle yapılan girişte eksik veya biçimsiz alanlar HTTP 400 döner. Yanlış parola ve bilinmeyen e-posta için ortak yanıt HTTP 401 ve `{"code":"UNAUTHENTICATED","message":"Kimlik doğrulanamadı."}` olur. Bilinmeyen hesapta aynı maliyetle bir PBKDF2 doğrulaması yapılır. Veritabanı ve çalışma zamanı nedeniyle yanıt süreleri farklılık gösterebilir. Eksik veya başka oturuma ait CSRF belirteci HTTP 403 ve `{"code":"CSRF","message":"Oturum belirteci geçersiz."}` döndürür.
+
+Oturum 20 dakika hareketsizlikten sonra sona erer. Bu süre kullanılmayan tarayıcı oturumlarını sınırlar. Oturum yalnızca çerezle izlenir. `HttpOnly` ve `SameSite=Lax` çerezine ek olarak giriş ve çıkış için oturuma bağlı CSRF belirteci kullanılır. Kimlik yanıtları `Cache-Control: no-store` taşır. Yerel HTTP geliştirmesinde loopback üzerinden erişilir. HTTPS yayınında projenin Caddy yapılandırması dışarı verilen `JSESSIONID` çerezine `Secure` ekler. Başka bir TLS sonlandırıcı kullanılıyorsa aynı çerez politikasını orada uygulayın.
+
+Oturum açıkken başka hesaba geçmek için aynı giriş ucunu mevcut oturumun CSRF belirteciyle çağırın. Yeni hesabın bilgileri doğrulanırsa eski oturum kapatılır, yeni kimlikle yeni oturum oluşturulur. Yanlış parola veya geçersiz istek mevcut hesabı ve çerezi korur. Arayüz yalnızca başarılı girişten sonra kullanıcı bilgisini değiştirmeli; belirsiz bir ağ sonucunda `GET /api/auth/me` ile etkin hesabı okuyabilir.
+
+### Kullanıcı tablosu ve yükseltme
+
+| Alan | PostgreSQL türü | Amaç ve kısıt |
+|---|---|---|
+| `id` | UUID | Birincil anahtar, e-postadan bağımsız ve uygulama tarafından üretilir |
+| `email` | VARCHAR(254) | Zorunlu, küçük harfli, boşluksuz, benzersiz. C collation ile normalizasyon veritabanı dilinden bağımsızdır |
+| `password_hash` | VARCHAR(255) | Zorunlu. Algoritma, tur sayısı, Base64 salt ve Base64 özet sırasıyla iki noktayla ayrılır |
+| `role` | VARCHAR(5) | Zorunlu, `USER` veya `ADMIN`. Herkese açık kayıt yalnızca `USER` oluşturur |
+
+Her parolada Java SecureRandom ile 16 bayt salt üretilir. Java'nın PBKDF2-HMAC-SHA256 uygulaması 600.000 turla 256 bit özet üretir. Ayrı salt aynı parolalara farklı özetler verir. Tur sayısı her tahminin hesaplama maliyetini artırır. [OWASP parola saklama rehberi](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+
+Boş Compose volume üzerinde `004-users.sql` başlangıçta sırayla uygulanır. Daha önce `003` uygulanmış bir volume için aşağıdaki komutu bir kez çalıştırın. İşlem mevcut katalog ve rezervasyon tablolarını korur.
+
+```powershell
+docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/004-users.sql'
+```
+
+## Erişim matrisi
+
+| Yöntem ve yol (/api altında) | Anonim | USER | ADMIN | CSRF |
+|---|---|---|---|---|
+| GET /health, /events, /events/{id}, /venues, /categories | Açık | Açık | Açık | Yok |
+| POST /auth/register, GET /auth/csrf | Açık | Açık | Açık | Yok |
+| POST /auth/login | Açık | Hesap geçişi | Hesap geçişi | Oturuma bağlı |
+| GET /auth/me | 401 | Kendi hesabı | Kendi hesabı | Yok |
+| POST /auth/logout | Oturum yoksa 204 | 204 | 204 | Mevcut oturum için gerekli |
+| POST /reservations | 401 | Kendi adına | Kendi adına | Gerekli |
+| GET /reservations/{uuid} | 401 | Yalnız sahibi | Yalnız sahibi | Yok |
+| POST /reservations/{uuid}/cancel | 401 | Yalnız sahibi | Yalnız sahibi | Gerekli |
+
+Giriş veya hesap geçişinden sonra aynı çerezle `GET /api/auth/csrf` çağırın. Oluşturma ve iptal POST isteklerinde güncel belirteci `X-CSRF-Token` başlığıyla gönderin. Üye 5, etkin kimliği `/auth/me` üzerinden okur. 401 durumunda giriş ekranına yönlendirir. 403 için hata kodu `CSRF` ise güncel belirteci alır; `FORBIDDEN` ise erişim reddini gösterir.
+
+Rezervasyon API yanıtları `Cache-Control: no-store` taşır. Rezervasyon sahibi container principal UUID’sidir. JSON isteğinde `userId`, `ownerId` veya `role` göndermeyin. İletişim adı ve e-postası bilet bilgisi olarak kalır. Farklı iletişim bilgileri sahipliği değiştirmez. Başarılı oluşturma 201 ve Location, sorgu/iptal 200 döndürür. Mevcut olmayan rezervasyon 404, farklı sahibin veya eski sahipsiz kaydın UUID’si 403, tekrarlı iptal 409 döndürür. Bu 403/404 ayrımı görev kabul ölçütünün gereğidir. Her iki rol yalnızca kendi rezervasyonları üzerinde işlem yapabilir.
+
+Faces formunun oturumu sona erdiğinde veya hesap değiştiğinde eski görünümün gönderilmesi HTTP 410 döndürür. Güncel formu almak için sayfayı yeniden açın.
+
+### Yönetim işlemleri
+
+Mevcut katalog API’si yalnız okuma sağlar. Üye 2, yönetim resource sınıfına veya yazma metoduna `@ProtectedOperation(adminOnly = true)` eklemelidir. Filtre, kimliği ve container rolünü denetler; POST/PUT/PATCH/DELETE için oturum CSRF başlığını da kontrol eder. HTTP dışı sunum girişinde aynı kimlik denetimi `CurrentAccount.requireAdmin()` üzerinden uygulanır. Yönetim ekranını gizlemek bu denetimin yerini tutmaz. Yönetim CRUD uçları ve Üye 3’ün sayfalı rezervasyon listesi henüz mevcut değildir. Liste eklendiğinde sorgu, sayfalama öncesi doğrulanmış kullanıcı UUID’siyle sınırlandırılmalıdır.
+
+Public kayıt daima USER oluşturur. Yetkili veritabanı işletmeni, kimliği doğrulanmış belirli bir hesabın `users.id` değerini kontrol ederek rolünü kontrollü bir transaction içinde ADMIN yapabilir. Rol ataması ve geri alma işlemlerini operasyon kaydına geçirin. Container rolü oturum açılırken alınır. Rol değişikliğinin yürürlüğe girmesi için eski oturumlar sonlandırılmalı ve yeni giriş yapılmalıdır.
+
+### 005 sahiplik migration’ı
+
+Boş volume üzerinde başlangıç SQL dosyaları sırayla çalışır. 004 uygulanmış mevcut veritabanında bir kez çalıştırın:
+
+```powershell
+docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/005-reservation-owner.sql'
+```
+
+`reservations.user_id` UUID foreign key olarak `users.id` alanına bağlıdır. `idx_reservations_user` sahiplik sorgularını destekler. `CHECK (user_id IS NOT NULL) NOT VALID` mevcut satırları korur, yeni INSERT ve UPDATE işlemlerini denetler. Sahibi NULL kalan eski satırda yalnız durum veya iletişim bilgisini değiştiren UPDATE de reddedilir. Migration eski kayıtların sahibi hakkında çıkarım yapmaz. Bu satırlar API üzerinden okunamaz, iptal edilemez veya devralınamaz. İşletmen, sahipliği bağımsız olarak doğruladıktan sonra UUID’yi işlem kaydıyla atayabilir. Sahipsiz satır kalmadığında Üye 6 sonraki migration’da kısıtı doğrulayıp sütunu NOT NULL yapabilir.
+
+## Rezervasyon oluşturma
 
 ```json
 {
@@ -46,9 +132,12 @@ Ad 1–100, e-posta en fazla 254 karakter, adet 1–10 olmalı; etkinlik kimliğ
 | Kod | HTTP | Anlam |
 |---|---|---|
 | VALIDATION | 400 | Geçersiz form/JSON alanı veya UUID |
+| UNAUTHENTICATED | 401 | Kimliği doğrulanmamış veya oturumu geçersiz kullanıcı |
+| FORBIDDEN | 403 | Rol veya sahiplik izni yetersiz |
+| CSRF | 403 | Oturuma ait geçerli belirteç eksik |
 | NOT_FOUND | 404 | Kayıt yok |
 | CONFLICT | 409 | Kontenjan, tarih, durum veya eşzamanlılık çakışması |
 | HTTP_ERROR | 4xx | Adres, medya tipi veya JSON biçimi hatası |
 | INTERNAL_ERROR | 500 | Beklenmeyen hata; yanıtta log ile eşleşen referans bulunur |
 
-İstemciye stack trace/SQL/parola döndürülmez. Şu anda authentication yok; rezervasyon UUID'sini bilen kişi sorgulama ve iptal yapabilir. Kişisel sahiplik ve yönetici yetkisi ekip planında uygulanacaktır. `POST /reservations` henüz idempotency anahtarı desteklemez; ağ tekrarlarında aynı isteği otomatik yineleyen istemci yazılmamalıdır. Checkout için idempotency Üye 4'ün teslim ölçütüdür.
+İstemciye stack trace/SQL/parola döndürülmez. `POST /reservations` henüz idempotency anahtarı desteklemez; ağ tekrarlarında aynı isteği otomatik yineleyen istemci yazılmamalıdır. Checkout için idempotency Üye 4'ün teslim ölçütüdür.

@@ -27,6 +27,7 @@ Docker dışında Java 21 ile geliştirme, WAR dağıtımı ve sunucuya yayınla
 ## Hazır olan çekirdek
 
 - Yaklaşan etkinlikleri listeleyen Jakarta Faces ekranı ve REST API.
+- Kullanıcı kaydı ve Jakarta Security ile oturum açma, aktif kullanıcı sorgulama ve çıkış. [Kayıt sözleşmesi ve mevcut veritabanını yükseltme](docs/API.md#kullanıcı-kaydı).
 - Ad, e-posta ve adet doğrulaması; fiyatın sunucuda `BigDecimal` ile hesaplanması.
 - Rezervasyon oluşturma, UUID ile sorgulama ve iptal.
 - JTA transaction: kontenjan azaltma + rezervasyon kaydı birlikte başarılı olur veya geri alınır.
@@ -35,7 +36,7 @@ Docker dışında Java 21 ile geliştirme, WAR dağıtımı ve sunucuya yayınla
 - PostgreSQL şeması, örnek veri, Docker ve Payara dağıtım yapılandırması.
 - JUnit testleri, ArchUnit katman testleri, Checkstyle, SpotBugs, JaCoCo ve GitHub Actions.
 
-Bu sürüm bir başlangıç iskeletidir. Üyelik/yetkilendirme, yönetici CRUD ekranları, numaralı koltuk seçimi, ödeme/iade ve elektronik bilet henüz uygulanmadı. Bu geliştirmeler aşağıdaki altı kişilik planda ayrıldı. Mevcut rezervasyon kimliği, demo içinde sorgulama/iptal anahtarıdır; kullanıcı sahipliği kontrolü Üye 1 ve Üye 3'ün ortak teslimidir.
+Bu sürüm bir başlangıç iskeletidir. Yönetici CRUD ekranları, numaralı koltuk seçimi, ödeme/iade ve elektronik bilet henüz uygulanmadı. Bu geliştirmeler aşağıdaki altı kişilik planda ayrıldı. Rezervasyon oluşturma, görüntüleme ve iptal giriş gerektirir. ADMIN dahil her kullanıcı yalnız kendi rezervasyonlarına erişir. Yazma işlemleri güncel CSRF belirteci gerektirir.
 
 ## Altı kişilik iş bölümü
 
@@ -94,10 +95,17 @@ GitHub Actions `verify` işi hem Maven doğrulamasını hem gerçek Payara/Postg
 ## Örnek REST kullanımı
 
 ```powershell
-$body = @{ eventId = 1; customerName = 'Ada Yılmaz'; customerEmail = 'ada@example.com'; quantity = 2 } | ConvertTo-Json
-$reservation = Invoke-RestMethod http://localhost:8080/api/reservations -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
-Invoke-RestMethod "http://localhost:8080/api/reservations/$($reservation.id)"
-Invoke-RestMethod "http://localhost:8080/api/reservations/$($reservation.id)/cancel" -Method Post
+$api = 'http://localhost:8080/api'
+$csrf = Invoke-RestMethod "$api/auth/csrf" -SessionVariable browser
+$account = Get-Credential -Message 'Kayıtlı e-posta adresi ve parola'
+$login = @{email=$account.UserName; password=$account.GetNetworkCredential().Password} | ConvertTo-Json
+Invoke-RestMethod "$api/auth/login" -Method Post -WebSession $browser -Headers @{'X-CSRF-Token'=$csrf.token} -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
+$csrf = Invoke-RestMethod "$api/auth/csrf" -WebSession $browser
+$headers = @{'X-CSRF-Token'=$csrf.token}
+$body = @{eventId=1; customerName='Ada'; customerEmail='ada@example.com'; quantity=1} | ConvertTo-Json
+$reservation = Invoke-RestMethod "$api/reservations" -Method Post -WebSession $browser -Headers $headers -ContentType 'application/json' -Body $body
+Invoke-RestMethod "$api/reservations/$($reservation.id)" -WebSession $browser
+Invoke-RestMethod "$api/reservations/$($reservation.id)/cancel" -Method Post -WebSession $browser -Headers $headers
 ```
 
 Uçlar, durum kodları ve hata biçimi: [docs/API.md](docs/API.md).

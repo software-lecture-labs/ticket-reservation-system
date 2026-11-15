@@ -6,6 +6,8 @@ import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.presentation.rest.dto.ReservationRequest;
 import com.softwarelecture.ticket.presentation.rest.dto.ReservationResponse;
+import com.softwarelecture.ticket.presentation.security.CurrentAccount;
+import com.softwarelecture.ticket.presentation.security.ProtectedOperation;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
@@ -23,17 +25,20 @@ import jakarta.ws.rs.core.UriInfo;
 import java.net.URI;
 import java.util.UUID;
 
+@ProtectedOperation
 @Path("/reservations")
 @RequestScoped
 @Produces(MediaType.APPLICATION_JSON)
 public class ReservationResource {
     @Inject
     private ReservationService reservations;
+    @Inject
+    private CurrentAccount account;
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     public Response create(@NotNull @Valid ReservationRequest request, @Context UriInfo uriInfo) {
-        Reservation reservation = reservations.create(new CreateReservation(request.eventId,
+        Reservation reservation = reservations.create(account.require().id(), new CreateReservation(request.eventId,
                 request.customerName, request.customerEmail, request.quantity));
         URI location = uriInfo.getAbsolutePathBuilder().path(reservation.getId().toString()).build();
         return Response.created(location).entity(new ReservationResponse(reservation)).build();
@@ -42,13 +47,13 @@ public class ReservationResource {
     @GET
     @Path("/{id}")
     public ReservationResponse find(@PathParam("id") String id) {
-        return new ReservationResponse(reservations.find(parseId(id)));
+        return new ReservationResponse(reservations.find(account.require().id(), parseId(id)));
     }
 
     @POST
     @Path("/{id}/cancel")
     public ReservationResponse cancel(@PathParam("id") String id) {
-        return new ReservationResponse(reservations.cancel(parseId(id)));
+        return new ReservationResponse(reservations.cancel(account.require().id(), parseId(id)));
     }
 
     private UUID parseId(String id) {

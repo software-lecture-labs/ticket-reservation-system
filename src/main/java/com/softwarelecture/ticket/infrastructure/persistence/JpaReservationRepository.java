@@ -6,7 +6,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,14 +15,20 @@ public class JpaReservationRepository implements ReservationRepository {
     private EntityManager entityManager;
 
     @Override
-    public Optional<Reservation> findById(UUID id) {
-        return Optional.ofNullable(entityManager.find(Reservation.class, id));
+    public Optional<Reservation> findOwned(UUID id, UUID userId, boolean forUpdate) {
+        var query = entityManager.createQuery(
+                "SELECT r FROM Reservation r WHERE r.id = :id AND r.userId = :owner", Reservation.class)
+                .setParameter("id", id).setParameter("owner", userId);
+        if (forUpdate) {
+            query.setLockMode(LockModeType.PESSIMISTIC_WRITE).setHint("jakarta.persistence.lock.timeout", 5000);
+        }
+        return JpaLock.translateConflict(() -> query.getResultList().stream().findFirst());
     }
 
     @Override
-    public Optional<Reservation> findByIdForUpdate(UUID id) {
-        return JpaLock.translateConflict(() -> Optional.ofNullable(entityManager.find(Reservation.class, id,
-                LockModeType.PESSIMISTIC_WRITE, Map.of("jakarta.persistence.lock.timeout", 5000))));
+    public boolean exists(UUID id) {
+        return entityManager.createQuery("SELECT COUNT(r) FROM Reservation r WHERE r.id = :id", Long.class)
+                .setParameter("id", id).getSingleResult() > 0;
     }
 
     @Override

@@ -23,6 +23,8 @@ public class ApiExceptionMapper implements ExceptionMapper<Exception> {
                 case VALIDATION -> 400;
                 case NOT_FOUND -> 404;
                 case CONFLICT -> 409;
+                case UNAUTHENTICATED -> 401;
+                case FORBIDDEN, CSRF -> 403;
             };
             return error(status, domain.getKind().name(), domain.getMessage());
         }

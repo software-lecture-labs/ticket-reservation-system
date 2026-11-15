@@ -5,7 +5,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface ReservationRepository {
-    Optional<Reservation> findById(UUID id);
-    Optional<Reservation> findByIdForUpdate(UUID id);
+    Optional<Reservation> findOwned(UUID id, UUID userId, boolean forUpdate);
+    boolean exists(UUID id);
     void save(Reservation reservation);
 }

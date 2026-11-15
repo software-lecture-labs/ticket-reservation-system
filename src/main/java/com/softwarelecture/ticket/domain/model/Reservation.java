@@ -17,6 +17,8 @@ import java.util.UUID;
 public class Reservation {
     @Id
     private UUID id;
+    @Column(name = "user_id", updatable = false)
+    private UUID userId;
     @Column(name = "event_id", nullable = false, updatable = false)
     private Long eventId;
     @Column(name = "customer_name", nullable = false, length = 100)
@@ -39,9 +41,10 @@ public class Reservation {
         // JPA constructor.
     }
 
-    private Reservation(UUID id, Long eventId, String customerName, String customerEmail,
+    private Reservation(UUID id, UUID userId, Long eventId, String customerName, String customerEmail,
                         int quantity, BigDecimal totalPrice, Instant createdAt) {
         this.id = id;
+        this.userId = userId;
         this.eventId = eventId;
         this.customerName = customerName;
         this.customerEmail = customerEmail;
@@ -51,12 +54,15 @@ public class Reservation {
         this.createdAt = createdAt;
     }
 
-    public static Reservation create(Long eventId, String customerName, String customerEmail,
+    public static Reservation create(UUID userId, Long eventId, String customerName, String customerEmail,
                                      int quantity, BigDecimal unitPrice, Instant createdAt) {
         Event.validateQuantity(quantity);
         validateInputs(eventId, customerName, customerEmail, unitPrice, createdAt);
+        if (userId == null) {
+            throw new DomainException(DomainException.Kind.UNAUTHENTICATED, "Oturum gerekli.");
+        }
         return new Reservation(
-                UUID.randomUUID(),
+                UUID.randomUUID(), userId,
                 eventId,
                 customerName.trim(),
                 customerEmail.trim(),
@@ -83,6 +89,7 @@ public class Reservation {
     }
 
     public UUID getId() { return id; }
+    public UUID getUserId() { return userId; }
     public Long getEventId() { return eventId; }
     public String getCustomerName() { return customerName; }
     public String getCustomerEmail() { return customerEmail; }
