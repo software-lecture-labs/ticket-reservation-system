@@ -23,6 +23,7 @@
     <div class="forms">
       <section aria-labelledby="booking-title"><h2 id="booking-title">Rezervasyon yap</h2>
         <h:form id="booking">
+          <input type="hidden" name="csrfToken" value="#{bookingView.csrfToken}"/>
           <h:outputLabel for="event" value="Etkinlik"/>
           <h:selectOneMenu id="event" value="#{bookingView.eventId}" required="true">
             <f:selectItem itemLabel="Etkinlik seçin" itemValue="#{null}" noSelectionOption="true"/>
@@ -40,6 +41,7 @@
       <section aria-labelledby="cancel-title"><h2 id="cancel-title">Rezervasyon iptali</h2>
         <p>Rezervasyon sırasında verilen numarayı kullanın.</p>
         <h:form id="cancel">
+          <input type="hidden" name="csrfToken" value="#{bookingView.csrfToken}"/>
           <h:outputLabel for="reference" value="Rezervasyon numarası"/>
           <h:inputText id="reference" value="#{bookingView.reservationId}" required="true" maxlength="36"/>
           <h:commandButton value="Rezervasyonu iptal et" action="#{bookingView.cancel}" styleClass="secondary"/>

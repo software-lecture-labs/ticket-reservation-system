@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReservationServiceTest {
     private static final Instant NOW = Instant.parse("2030-01-01T12:00:00Z");
+    private final UUID owner = UUID.randomUUID();
     private MemoryEvents events;
     private MemoryReservations reservations;
     private ReservationService service;
@@ -48,15 +49,15 @@ class ReservationServiceTest {
 
     @Test
     void createsReservationUsingServerPriceAndInventory() {
-        Reservation result = service.create(command(2));
+        Reservation result = service.create(owner, command(2));
         assertEquals(new BigDecimal("300.00"), result.getTotalPrice());
         assertEquals(3, events.event.getAvailableSeats());
-        assertEquals(result, service.find(result.getId()));
+        assertEquals(result, service.find(owner, result.getId()));
     }
 
     @Test
     void invalidQuantityDoesNotChangeInventoryOrSave() {
-        assertThrows(DomainException.class, () -> service.create(command(0)));
+        assertThrows(DomainException.class, () -> service.create(owner, command(0)));
         assertEquals(5, events.event.getAvailableSeats());
         assertTrue(reservations.values.isEmpty());
     }
@@ -64,18 +65,18 @@ class ReservationServiceTest {
     @Test
     void missingEventDoesNotCreateReservation() {
         events.event = null;
-        DomainException error = assertThrows(DomainException.class, () -> service.create(command(1)));
+        DomainException error = assertThrows(DomainException.class, () -> service.create(owner, command(1)));
         assertEquals(DomainException.Kind.NOT_FOUND, error.getKind());
         assertTrue(reservations.values.isEmpty());
     }
 
     @Test
     void cancellationReturnsSeatsOnlyOnce() {
-        Reservation reservation = service.create(command(2));
-        service.cancel(reservation.getId());
+        Reservation reservation = service.create(owner, command(2));
+        service.cancel(owner, reservation.getId());
         assertEquals(5, events.event.getAvailableSeats());
         assertEquals(ReservationStatus.CANCELLED, reservation.getStatus());
-        assertThrows(DomainException.class, () -> service.cancel(reservation.getId()));
+        assertThrows(DomainException.class, () -> service.cancel(owner, reservation.getId()));
         assertEquals(5, events.event.getAvailableSeats());
     }
 
@@ -83,14 +84,50 @@ class ReservationServiceTest {
     void missingReservationReturnsNotFound() {
         UUID id = UUID.randomUUID();
         assertEquals(DomainException.Kind.NOT_FOUND,
-                assertThrows(DomainException.class, () -> service.find(id)).getKind());
+                assertThrows(DomainException.class, () -> service.find(owner, id)).getKind());
     }
 
     @Test
     void nullCommandOrEventIdIsRejected() {
-        assertThrows(DomainException.class, () -> service.create(null));
-        assertThrows(DomainException.class, () -> service.create(new CreateReservation(null, "Ada", "ada@example.com", 1)));
+        assertThrows(DomainException.class, () -> service.create(owner, null));
+        assertThrows(DomainException.class, () -> service.create(owner, new CreateReservation(null, "Ada", "ada@example.com", 1)));
         assertTrue(reservations.values.isEmpty());
+    }
+
+    @Test
+    void onlyOwnerCanReadOrCancel() {
+        Reservation result = service.create(owner, command(2));
+        UUID stranger = UUID.randomUUID();
+        assertEquals(owner, result.getUserId());
+        assertEquals(DomainException.Kind.FORBIDDEN,
+                assertThrows(DomainException.class, () -> service.find(stranger, result.getId())).getKind());
+        assertEquals(DomainException.Kind.FORBIDDEN,
+                assertThrows(DomainException.class, () -> service.cancel(stranger, result.getId())).getKind());
+        assertEquals(ReservationStatus.ACTIVE, result.getStatus());
+        assertEquals(3, events.event.getAvailableSeats());
+    }
+
+    @Test
+    void legacyReservationIsInaccessibleEvenWithMatchingContactEmail() throws ReflectiveOperationException {
+        Reservation legacy = service.create(owner, command(1));
+        Field ownerField = Reservation.class.getDeclaredField("userId");
+        ownerField.setAccessible(true);
+        ownerField.set(legacy, null);
+        assertEquals(DomainException.Kind.FORBIDDEN,
+                assertThrows(DomainException.class, () -> service.find(owner, legacy.getId())).getKind());
+        assertEquals(DomainException.Kind.FORBIDDEN,
+                assertThrows(DomainException.class, () -> service.cancel(owner, legacy.getId())).getKind());
+        assertEquals(ReservationStatus.ACTIVE, legacy.getStatus());
+    }
+
+    @Test
+    void anonymousCallerCannotCreateReadOrCancel() {
+        UUID id = UUID.randomUUID();
+        assertEquals(DomainException.Kind.UNAUTHENTICATED,
+                assertThrows(DomainException.class, () -> service.create(null, command(1))).getKind());
+        assertThrows(DomainException.class, () -> service.find(null, id));
+        assertThrows(DomainException.class, () -> service.cancel(null, id));
+        assertEquals(5, events.event.getAvailableSeats());
     }
 
     private static class MemoryEvents implements EventRepository {
@@ -120,13 +157,13 @@ class ReservationServiceTest {
         private final Map<UUID, Reservation> values = new HashMap<>();
 
         @Override
-        public Optional<Reservation> findById(UUID id) {
-            return Optional.ofNullable(values.get(id));
+        public Optional<Reservation> findOwned(UUID id, UUID userId, boolean forUpdate) {
+            return Optional.ofNullable(values.get(id)).filter(r -> userId.equals(r.getUserId()));
         }
 
         @Override
-        public Optional<Reservation> findByIdForUpdate(UUID id) {
-            return findById(id);
+        public boolean exists(UUID id) {
+            return values.containsKey(id);
         }
 
         @Override
