@@ -6,6 +6,7 @@
     <class>com.softwarelecture.ticket.domain.model.Reservation</class>
     <class>com.softwarelecture.ticket.domain.model.Venue</class>
     <class>com.softwarelecture.ticket.domain.model.Category</class>
+    <class>com.softwarelecture.ticket.domain.model.User</class>
     <exclude-unlisted-classes>true</exclude-unlisted-classes>
     <shared-cache-mode>NONE</shared-cache-mode>
     <properties>
