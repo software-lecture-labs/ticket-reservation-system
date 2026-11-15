@@ -65,6 +65,15 @@ def run(base):
         time.sleep(2)
 
     expect(request(base, "/api/events")[0] == 200, "event catalog responds")
+    status, venues = request(base, "/api/venues")
+    expect(status == 200 and {"İstanbul", "Ankara", "İzmir"} <= {v["city"] for v in venues},
+           "venue list returns demo venues")
+    expect(all(set(v) == {"id", "name", "city", "address"} for v in venues), "venue DTO exposes only public fields")
+    status, categories = request(base, "/api/categories")
+    expect(status == 200 and {"Konser", "Tiyatro", "Konferans"} <= {c["name"] for c in categories},
+           "category list returns demo categories")
+    expect(int(sql("SELECT count(*) FROM events WHERE venue_id IS NOT NULL AND category_id IS NOT NULL")) >= 3,
+           "demo events are linked to a venue and category")
     with urllib.request.urlopen(base + "/", timeout=30) as response:
         expect(b"booking" in response.read(), "Jakarta Faces booking page renders")
 

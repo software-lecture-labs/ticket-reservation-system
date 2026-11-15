@@ -4,6 +4,8 @@
     <jta-data-source>java:app/jdbc/TicketDS</jta-data-source>
     <class>com.softwarelecture.ticket.domain.model.Event</class>
     <class>com.softwarelecture.ticket.domain.model.Reservation</class>
+    <class>com.softwarelecture.ticket.domain.model.Venue</class>
+    <class>com.softwarelecture.ticket.domain.model.Category</class>
     <exclude-unlisted-classes>true</exclude-unlisted-classes>
     <shared-cache-mode>NONE</shared-cache-mode>
     <properties>
