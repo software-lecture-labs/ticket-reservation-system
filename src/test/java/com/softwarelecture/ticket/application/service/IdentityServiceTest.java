@@ -99,6 +99,22 @@ class IdentityServiceTest {
     }
 
     @Test
+    void authenticatesNormalizedEmailAndKeepsFailuresIndistinguishable() {
+        RegisteredUser user = service.register("ada@example.com", PASSWORD);
+        assertEquals(Optional.of(user), service.authenticate(" ADA@EXAMPLE.COM ", PASSWORD));
+        assertEquals(Optional.empty(), service.authenticate(user.email(), PASSWORD + "x"));
+        assertEquals(Optional.empty(), service.authenticate("missing@example.com", PASSWORD));
+        assertEquals(1, stored.size());
+    }
+
+    @Test
+    void validatesCredentialsBeforeLookup() {
+        assertThrows(DomainException.class, () -> service.authenticate(null, PASSWORD));
+        assertThrows(DomainException.class, () -> service.authenticate("ada@example.com", null));
+        assertThrows(DomainException.class, () -> service.authenticate("ada@example.com", PASSWORD + Character.MIN_LOW_SURROGATE));
+    }
+
+    @Test
     void rejectsOverlongPassword() {
         assertThrows(DomainException.class, () -> service.register("ada@example.com", "x".repeat(129)));
     }

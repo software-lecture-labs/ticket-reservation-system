@@ -5,6 +5,8 @@ Usage: python scripts/smoke_test.py [--base-url http://localhost:8080]
 """
 import argparse
 import concurrent.futures
+import copy
+import http.cookiejar
 import json
 import os
 from pathlib import Path
@@ -118,6 +120,95 @@ def check_registration(base):
         sql(f"DELETE FROM users WHERE email='{email}'")
 
 
+class AuthClient:
+    def __init__(self, base, cookies=None):
+        self.base = base
+        self.jar = http.cookiejar.CookieJar()
+        for cookie in cookies or ():
+            self.jar.set_cookie(copy.copy(cookie))
+        self.http = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
+
+    def call(self, path, payload=None, token=None, method="GET"):
+        headers = {"Content-Type": "application/json"}
+        if token is not None:
+            headers["X-CSRF-Token"] = token
+        data = json.dumps(payload).encode() if payload is not None else None
+        req = urllib.request.Request(self.base + "/api/auth/" + path, data, headers, method=method)
+        try:
+            response = self.http.open(req, timeout=30)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            assert "no-store" in response.headers.get("Cache-Control", "")
+            body = response.read()
+            return response.status, json.loads(body) if body else None, response.headers
+
+    def session_id(self):
+        return next(cookie.value for cookie in self.jar if cookie.name == "JSESSIONID")
+
+
+def check_sessions(base):
+    email = f"session-{uuid.uuid4().hex}@example.com"
+    other_email = f"other-{uuid.uuid4().hex}@example.com"
+    password = uuid.uuid4().hex
+    client, other = AuthClient(base), AuthClient(base)
+    credentials = {"email": " " + email.upper() + " ", "password": password, "role": "ADMIN"}
+    try:
+        status, user, _ = client.call("register", credentials, method="POST")
+        expect(status == 201, "session fixture registered")
+        status, other_user, _ = other.call("register", {"email": other_email, "password": password}, method="POST")
+        expect(status == 201 and other_user["id"] != user["id"], "second independent account registered")
+        expect(client.call("me")[0] == 401, "anonymous me returns 401")
+        status, csrf, headers = client.call("csrf")
+        token = csrf["token"]
+        cookie_headers = " ".join(headers.get_all("Set-Cookie", [])).lower()
+        expect(status == 200 and "httponly" in cookie_headers and "samesite=lax" in cookie_headers,
+               "local session cookie carries HttpOnly and SameSite=Lax")
+        before = AuthClient(base, client.jar)
+        expect(client.call("login", credentials, method="POST")[0] == 403, "login requires CSRF header")
+        other_token = other.call("csrf")[1]["token"]
+        expect(client.call("login", credentials, other_token, "POST")[0] == 403, "CSRF token is session-bound")
+        expect(client.call("login", {"email": email}, token, "POST")[0] == 400, "incomplete credentials return 400")
+        wrong = client.call("login", dict(credentials, password=password + "x"), token, "POST")
+        unknown = client.call("login", dict(credentials, email="missing-" + email), token, "POST")
+        expect(wrong[0] == 401 and wrong[:2] == unknown[:2], "wrong and missing credentials have identical errors")
+        expect(client.call("me")[0] == 401, "failed login leaves the caller anonymous")
+        status, logged_in, _ = client.call("login", credentials, token, "POST")
+        expect(status == 200 and logged_in == user and user["role"] == "USER", "login returns the stored user")
+        expect(before.session_id() != client.session_id() and before.call("me")[0] == 401,
+               "pre-login session rotates and remains anonymous")
+        expect(client.call("me")[:2] == (200, user), "container principal and role match on a subsequent request")
+        expect(other.call("login", {"email": other_email, "password": password}, other_token, "POST")[:2]
+               == (200, other_user), "second client signs in independently")
+        expect(other.call("me")[1] == other_user and client.call("me")[1] == user, "client identities stay isolated")
+        switch_token = client.call("csrf")[1]["token"]
+        old_account = AuthClient(base, client.jar)
+        expect(client.call("login", {"email": other_email, "password": password + "x"}, switch_token, "POST")[0] == 401,
+               "failed account switch returns 401")
+        expect(client.call("me")[:2] == (200, user) and client.session_id() == old_account.session_id(),
+               "failed switch preserves the previously authenticated account")
+        expect(client.call("login", {"email": other_email, "password": password}, switch_token, "POST")[:2]
+               == (200, other_user), "same client can switch accounts")
+        expect(client.call("me")[:2] == (200, other_user) and client.session_id() != old_account.session_id(),
+               "switched session uses the new container identity")
+        expect(old_account.call("me")[0] == 401, "former account session is invalid after switching")
+        expect(client.call("logout", token=switch_token, method="POST")[0] == 403,
+               "former account token is invalid after switching")
+        authenticated = AuthClient(base, client.jar)
+        expect(client.call("logout", token=token, method="POST")[0] == 403, "pre-login token cannot authorize logout")
+        token = client.call("csrf")[1]["token"]
+        expect(client.call("logout", token=token, method="POST")[0] == 204, "logout succeeds")
+        expect(authenticated.call("me")[0] == 401 and client.call("me")[0] == 401, "logged-out session loses access")
+        expect(client.call("logout", method="POST")[0] == 204, "anonymous logout is idempotent")
+        expect(other.call("me")[:2] == (200, other_user), "logout leaves the other client's identity intact")
+        logs = subprocess.check_output(["docker", "compose", "logs", "--no-color", "app"], cwd=ROOT)
+        stored_hash = sql(f"SELECT password_hash FROM users WHERE email='{email}'")
+        expect(stored_hash and stored_hash.encode() not in logs and password.encode() not in logs,
+               "login credentials and stored hash are absent from app logs")
+    finally:
+        sql(f"DELETE FROM users WHERE email IN ('{email}', '{other_email}')")
+
+
 def run(base):
     deadline = time.monotonic() + 240
     while True:
@@ -133,6 +224,7 @@ def run(base):
 
     check_user_migration()
     check_registration(base)
+    check_sessions(base)
     expect(request(base, "/api/events")[0] == 200, "event catalog responds")
     status, venues = request(base, "/api/venues")
     expect(status == 200 and {"İstanbul", "Ankara", "İzmir"} <= {v["city"] for v in venues},
