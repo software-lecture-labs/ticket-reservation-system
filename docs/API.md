@@ -5,13 +5,47 @@ Taban: `http://localhost:8080/api`. JSON ve UTF-8 kullanılır. Tarihler ISO 860
 | Metot | Yol | Başarılı yanıt |
 |---|---|---|
 | GET | `/health` | `200`, uygulama + veritabanı erişimi |
+| POST | `/auth/register` | `201`, yeni kullanıcının kimliği, e-postası ve rolü |
 | GET | `/events` | `200`, gelecek en fazla 100 etkinlik, tarihe göre |
 | GET | `/events/{id}` | `200`, etkinlik detayı |
 | POST | `/reservations` | `201`, rezervasyon ve `Location` header |
 | GET | `/reservations/{uuid}` | `200`, rezervasyon özeti |
 | POST | `/reservations/{uuid}/cancel` | `200`, `CANCELLED` rezervasyon |
 
-## Oluşturma
+## Kullanıcı kaydı
+
+`POST /api/auth/register` iki JSON alanı kabul eder. E-posta başındaki ve sonundaki boşluklar temizlenir ve adres küçük harfe çevrilir. Noktayla ayrılmış alan adına sahip ASCII e-posta adresleri desteklenir. Parola boşluklardan ibaret olamaz ve 15–128 Unicode kod noktası içermelidir. Parola olduğu gibi işlenir.
+
+```json
+{"email":" Ada@Example.com ","password":"sadece örnek için parola"}
+```
+
+Başarılı yanıt (`201 Created`) aşağıdaki biçimdedir.
+
+```json
+{"id":"9d034072-0dbc-4e4b-b4d5-ee29241eff8d","email":"ada@example.com","role":"USER"}
+```
+
+Eksik veya geçersiz alanlar `400 VALIDATION`, aynı normalize adrese sonraki veya eşzamanlı kayıt `409 CONFLICT` döndürür. Rolü sunucu atar. Üye 5 kayıt ekranında bu yanıtı kullanabilir. Kayıt oturum açmaz. Üye 3 için gelecekteki rezervasyon sahipliği anahtarı `users.id` (UUID) olarak planlanmıştır. Oturumdan kimlik alma ve rezervasyonun kullanıcıya bağlanması sonraki iş paketlerindedir.
+
+### Kullanıcı tablosu ve yükseltme
+
+| Alan | PostgreSQL türü | Amaç ve kısıt |
+|---|---|---|
+| `id` | UUID | Birincil anahtar, e-postadan bağımsız ve uygulama tarafından üretilir |
+| `email` | VARCHAR(254) | Zorunlu, küçük harfli, boşluksuz, benzersiz. C collation ile normalizasyon veritabanı dilinden bağımsızdır |
+| `password_hash` | VARCHAR(255) | Zorunlu. Algoritma, tur sayısı, Base64 salt ve Base64 özet sırasıyla iki noktayla ayrılır |
+| `role` | VARCHAR(5) | Zorunlu, `USER` veya `ADMIN`. Herkese açık kayıt yalnızca `USER` oluşturur |
+
+Her parolada Java SecureRandom ile 16 bayt salt üretilir. Java'nın PBKDF2-HMAC-SHA256 uygulaması 600.000 turla 256 bit özet üretir. Ayrı salt aynı parolalara farklı özetler verir. Tur sayısı her tahminin hesaplama maliyetini artırır. [OWASP parola saklama rehberi](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+
+Boş Compose volume üzerinde `004-users.sql` başlangıçta sırayla uygulanır. Daha önce `003` uygulanmış bir volume için aşağıdaki komutu bir kez çalıştırın. İşlem mevcut katalog ve rezervasyon tablolarını korur.
+
+```powershell
+docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 --single-transaction -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/004-users.sql'
+```
+
+## Rezervasyon oluşturma
 
 ```json
 {

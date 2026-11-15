@@ -4,7 +4,7 @@ Bu belge iş dağılımıdır; GitHub issue/assignee işlemi otomatik yapılmad�
 
 | Üye | Ad soyad | GitHub | Özellik dalı | İlk reviewer |
 |---|---|---|---|---|
-| 1 | Doldurulacak | @hesap | `feature/member-1-auth` | Üye 2 |
+| 1 | Ensar Yıldırım | @ensaryldrm | `feature/ensaryldrm-auth` | Üye 2 |
 | 2 | Doldurulacak | @hesap | `feature/member-2-catalog` | Üye 3 |
 | 3 | Doldurulacak | @hesap | `feature/member-3-reservation` | Üye 4 |
 | 4 | Doldurulacak | @hesap | `feature/member-4-checkout` | Üye 5 |

@@ -51,6 +51,73 @@ def expect(condition, message):
     print("PASS:", message, flush=True)
 
 
+def check_user_migration():
+    # Exercise an upgrade from the committed 003 schema without touching the app's tables.
+    schema = "upgrade_" + uuid.uuid4().hex
+    migrations = ROOT / "docker" / "postgres"
+    previous = ["001-schema.sql", "002-demo.sql", "003-venues-categories.sql"]
+    setup = "\n".join((migrations / name).read_text(encoding="utf-8") for name in previous)
+    upgrade = (migrations / "004-users.sql").read_text(encoding="utf-8")
+    result = sql(f"BEGIN; CREATE SCHEMA {schema}; SET LOCAL search_path TO {schema};\n"
+                 + setup + "\nCREATE TEMP TABLE original_events AS SELECT * FROM events;\n" + upgrade
+                 + """
+                 DO $test$
+                 DECLARE address text;
+                 BEGIN
+                     FOREACH address IN ARRAY ARRAY['', 'ada', 'ada@örnek.com', 'ADA@example.com',
+                             ' ada@example.com', 'a..b@example.com', repeat('a', 65) || '@example.com']
+                     LOOP
+                         BEGIN
+                             INSERT INTO users VALUES (gen_random_uuid(), address, 'fixture', 'USER');
+                             RAISE EXCEPTION 'Database accepted an invalid email';
+                         EXCEPTION WHEN check_violation THEN NULL;
+                         END;
+                     END LOOP;
+                 END $test$;
+                 """
+                 + "\nSELECT NOT EXISTS (SELECT * FROM original_events EXCEPT SELECT * FROM events)"
+                   " AND (SELECT count(*) FROM original_events) = 3 AND (SELECT count(*) FROM users) = 0;"
+                   "ROLLBACK;")
+    expect(result == "t", "004 upgrades a populated catalog and preserves existing event rows")
+
+
+def check_registration(base):
+    email = f"signup-{uuid.uuid4().hex}@example.com"
+    password = uuid.uuid4().hex
+    endpoint = "/api/auth/register"
+
+    def register(address):
+        return request(base, endpoint, {"email": address, "password": password, "role": "ADMIN"}, "POST")
+
+    try:
+        for invalid in ({"email": email}, {"password": password}, {"email": "ada@örnek.com", "password": password},
+                        {"email": email, "password": "short"}):
+            status, error = request(base, endpoint, invalid, "POST")
+            expect(status == 400 and error["code"] == "VALIDATION", "invalid registration returns 400")
+            expect(password not in json.dumps(error), "validation response omits the password")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(register, [email, " " + email.upper() + " "]))
+        expect(sorted(status for status, _ in results) == [201, 409], "concurrent duplicates create one user")
+        created = next(body for status, body in results if status == 201)
+        user_id = uuid.UUID(created["id"])
+        expect(created == {"id": str(user_id), "email": email, "role": "USER"},
+               "registration exposes only public fields and assigns USER")
+        status, error = register(email)
+        expect(status == 409 and error["code"] == "CONFLICT" and password not in json.dumps(error),
+               "a later duplicate returns a safe conflict response")
+        expect(sql(f"SELECT count(*) FROM users WHERE email='{email}' AND id='{user_id}'"
+                   " AND role='USER' AND password_hash LIKE 'PBKDF2WithHmacSHA256:600000:%'") == "1",
+               "database contains one user with a salted password hash")
+        # A direct duplicate must hit the unique constraint independently of the API.
+        sql(f"DO $$ BEGIN INSERT INTO users SELECT gen_random_uuid(), email, password_hash, role "
+            f"FROM users WHERE id='{user_id}'; RAISE EXCEPTION 'missing email constraint'; "
+            "EXCEPTION WHEN unique_violation THEN NULL; END $$;")
+        logs = subprocess.check_output(["docker", "compose", "logs", "--no-color", "app"], cwd=ROOT)
+        expect(password.encode() not in logs, "registration password is absent from application logs")
+    finally:
+        sql(f"DELETE FROM users WHERE email='{email}'")
+
+
 def run(base):
     deadline = time.monotonic() + 240
     while True:
@@ -64,6 +131,8 @@ def run(base):
             raise RuntimeError("Payara/database did not become ready in 240 seconds")
         time.sleep(2)
 
+    check_user_migration()
+    check_registration(base)
     expect(request(base, "/api/events")[0] == 200, "event catalog responds")
     status, venues = request(base, "/api/venues")
     expect(status == 200 and {"İstanbul", "Ankara", "İzmir"} <= {v["city"] for v in venues},

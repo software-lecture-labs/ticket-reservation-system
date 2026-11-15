@@ -27,6 +27,7 @@ Docker dışında Java 21 ile geliştirme, WAR dağıtımı ve sunucuya yayınla
 ## Hazır olan çekirdek
 
 - Yaklaşan etkinlikleri listeleyen Jakarta Faces ekranı ve REST API.
+- Güvenli kullanıcı kaydı için `POST /api/auth/register`. [Kayıt sözleşmesi ve mevcut veritabanını yükseltme](docs/API.md#kullanıcı-kaydı).
 - Ad, e-posta ve adet doğrulaması; fiyatın sunucuda `BigDecimal` ile hesaplanması.
 - Rezervasyon oluşturma, UUID ile sorgulama ve iptal.
 - JTA transaction: kontenjan azaltma + rezervasyon kaydı birlikte başarılı olur veya geri alınır.
@@ -35,7 +36,7 @@ Docker dışında Java 21 ile geliştirme, WAR dağıtımı ve sunucuya yayınla
 - PostgreSQL şeması, örnek veri, Docker ve Payara dağıtım yapılandırması.
 - JUnit testleri, ArchUnit katman testleri, Checkstyle, SpotBugs, JaCoCo ve GitHub Actions.
 
-Bu sürüm bir başlangıç iskeletidir. Üyelik/yetkilendirme, yönetici CRUD ekranları, numaralı koltuk seçimi, ödeme/iade ve elektronik bilet henüz uygulanmadı. Bu geliştirmeler aşağıdaki altı kişilik planda ayrıldı. Mevcut rezervasyon kimliği, demo içinde sorgulama/iptal anahtarıdır; kullanıcı sahipliği kontrolü Üye 1 ve Üye 3'ün ortak teslimidir.
+Bu sürüm bir başlangıç iskeletidir. Giriş/çıkış, oturum yönetimi, yetkilendirme, yönetici CRUD ekranları, numaralı koltuk seçimi, ödeme/iade ve elektronik bilet henüz uygulanmadı. Bu geliştirmeler aşağıdaki altı kişilik planda ayrıldı. Mevcut rezervasyon kimliği, demo içinde sorgulama/iptal anahtarıdır; kullanıcı sahipliği kontrolü Üye 1 ve Üye 3'ün ortak teslimidir.
 
 ## Altı kişilik iş bölümü
 
