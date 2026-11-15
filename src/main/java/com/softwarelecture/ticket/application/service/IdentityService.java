@@ -7,6 +7,7 @@ import com.softwarelecture.ticket.domain.repository.UserRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import java.nio.charset.StandardCharsets;
 
 @ApplicationScoped
 @Transactional(rollbackOn = Exception.class)
@@ -27,6 +28,9 @@ public class IdentityService {
         int length = password == null ? 0 : password.codePointCount(0, password.length());
         if (length < 15 || length > 128 || password.isBlank()) {
             throw new DomainException(DomainException.Kind.VALIDATION, "Parola 15–128 karakter olmalı.");
+        }
+        if (!StandardCharsets.UTF_8.newEncoder().canEncode(password)) {
+            throw new DomainException(DomainException.Kind.VALIDATION, "Parola geçerli Unicode karakterleri içermeli.");
         }
         User user = User.register(normalized, PasswordHasher.hash(password));
         if (!users.insertIfEmailAvailable(user)) {

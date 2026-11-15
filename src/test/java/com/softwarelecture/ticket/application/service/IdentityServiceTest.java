@@ -84,6 +84,21 @@ class IdentityServiceTest {
     }
 
     @Test
+    void rejectsUnpairedSurrogatesBeforeStoringUser() {
+        for (char surrogate : new char[]{Character.MIN_HIGH_SURROGATE, Character.MIN_LOW_SURROGATE}) {
+            assertEquals(DomainException.Kind.VALIDATION, assertThrows(DomainException.class,
+                    () -> service.register("ada@example.com", PASSWORD + surrogate)).getKind());
+        }
+        assertEquals(0, stored.size());
+    }
+
+    @Test
+    void acceptsSupplementaryCharactersAtPasswordLengthLimit() {
+        RegisteredUser user = service.register("ada@example.com", "🎟".repeat(128));
+        assertEquals(user.id(), stored.get(user.email()).getId());
+    }
+
+    @Test
     void rejectsOverlongPassword() {
         assertThrows(DomainException.class, () -> service.register("ada@example.com", "x".repeat(129)));
     }

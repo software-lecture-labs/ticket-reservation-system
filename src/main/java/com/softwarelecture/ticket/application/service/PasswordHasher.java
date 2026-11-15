@@ -8,22 +8,25 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 
 final class PasswordHasher {
+    private static final String ALGORITHM = "PBKDF2WithHmacSHA256";
     private static final int ITERATIONS = 600_000;
+    private static final int SALT_BYTES = 16;
+    private static final int KEY_BITS = 256;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private PasswordHasher() {
     }
 
     static String hash(String password) {
-        byte[] salt = new byte[16];
+        byte[] salt = new byte[SALT_BYTES];
         RANDOM.nextBytes(salt);
         char[] chars = password.toCharArray();
-        PBEKeySpec spec = new PBEKeySpec(chars, salt, ITERATIONS, 256);
+        PBEKeySpec spec = new PBEKeySpec(chars, salt, ITERATIONS, KEY_BITS);
         Arrays.fill(chars, '\0');
         try {
-            byte[] digest = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();
+            byte[] digest = SecretKeyFactory.getInstance(ALGORITHM).generateSecret(spec).getEncoded();
             Base64.Encoder encoder = Base64.getEncoder();
-            return "PBKDF2WithHmacSHA256:" + ITERATIONS + ":" + encoder.encodeToString(salt)
+            return ALGORITHM + ":" + ITERATIONS + ":" + encoder.encodeToString(salt)
                     + ":" + encoder.encodeToString(digest);
         } catch (GeneralSecurityException exception) {
             throw new IllegalStateException("Parola özeti üretilemedi.", exception);
