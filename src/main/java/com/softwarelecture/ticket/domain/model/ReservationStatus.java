@@ -2,5 +2,9 @@ package com.softwarelecture.ticket.domain.model;
 
 public enum ReservationStatus {
     ACTIVE,
-    CANCELLED
+    CONFIRMED,
+    CANCELLED,
+    EXPIRED,
+    REFUND_PENDING,
+    REFUNDED
 }

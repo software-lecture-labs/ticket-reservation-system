@@ -63,20 +63,32 @@ public class Event {
 
     public void reserve(int quantity, Instant now) {
         validateQuantity(quantity);
-        if (!startsAt.isAfter(now)) {
-            throw new DomainException(DomainException.Kind.CONFLICT, "Başlamış etkinliğe rezervasyon yapılamaz.");
-        }
+        requireReservationAllowed(now);
         if (quantity > availableSeats) {
             throw new DomainException(DomainException.Kind.CONFLICT, "Yeterli kontenjan yok.");
         }
         availableSeats -= quantity;
     }
 
+    public void requireReservationAllowed(Instant now) {
+        if (!startsAt.isAfter(now)) {
+            throw new DomainException(DomainException.Kind.CONFLICT, "Başlamış etkinliğe rezervasyon yapılamaz.");
+        }
+    }
+
     public void release(int quantity, Instant now) {
-        validateQuantity(quantity);
+        requireCancellationAllowed(now);
+        releaseHeldSeats(quantity);
+    }
+
+    public void requireCancellationAllowed(Instant now) {
         if (!startsAt.isAfter(now)) {
             throw new DomainException(DomainException.Kind.CONFLICT, "Başlamış etkinliğin rezervasyonu iptal edilemez.");
         }
+    }
+
+    public void releaseHeldSeats(int quantity) {
+        validateQuantity(quantity);
         if (quantity > capacity - availableSeats) {
             throw new DomainException(DomainException.Kind.CONFLICT, "Kontenjan kapasiteyi aşamaz.");
         }

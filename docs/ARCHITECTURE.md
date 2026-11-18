@@ -29,12 +29,14 @@ OCP'nin ödeme örneği geliştirme planıdır; ödeme modülü henüz yazılmad
 
 1. CDI proxy'si `ReservationService.create` çağrısını JTA transaction içinde başlatır.
 2. Etkinlik `PESSIMISTIC_WRITE` ile okunur. PostgreSQL'de aynı etkinliğin kontenjan değişiklikleri sıraya girer.
-3. Adet, müşteri bilgisi, etkinlik tarihi ve kontenjan doğrulanır.
+3. Süresi dolmuş tutmalar bırakılır; adet, müşteri, etkinlik tarihi, kontenjan ve seçilen koltuklar doğrulanır.
 4. Fiyat veri tabanındaki etkinlik fiyatından hesaplanır; istemci fiyat göndermez.
-5. Entity üzerindeki kontenjan azaltılır; rezervasyon persist edilip flush edilir.
-6. Metot başarıyla biterse container commit eder; herhangi bir exception'da `rollbackOn = Exception.class` ikisini de geri alır.
+5. Kontenjan azaltılır; rezervasyon ve seçilen koltuk geçmişi persist edilir, canlı koltuklar rezervasyona atanır.
+6. Metot başarıyla biterse container commit eder; herhangi bir exception'da `rollbackOn = Exception.class` tüm değişiklikleri geri alır.
 
-İptalde önce mevcut rezervasyon, sonra etkinlik kilitlenir. Aynı rezervasyonun ikinci iptali `CONFLICT` üretir. Oluşturma mevcut bir rezervasyonu kilitlemediğinden bu akışta ters yönde kilit döngüsü oluşmaz. Çoklu etkinlik/sepet özelliği eklenirse tüm etkinlikler için ortak sıralı kilitleme tasarlanmalıdır.
+Oluşturma, iptal, süre aşımı ve ödeme/iade callback'lerinin ortak kilit sırası **etkinlik → rezervasyon → koltuk** şeklindedir. Sahiplik/etkinlik kimliği önce entity yüklemeyen bir scalar sorguyla çözülür; böylece beklemeden önce yüklenmiş eski rezervasyon durumu kullanılmaz. Aynı rezervasyonun ikinci iptali `CONFLICT` üretir. Ödenmiş rezervasyon iptali `REFUND_PENDING` olur ve ödeme modülü iadeyi onaylamadan stok açılmaz. Çoklu etkinlik/sepet özelliği eklenirse etkinlikler için de sıralı kilitleme tasarlanmalıdır.
+
+Payara `ReservationExpiryJob` her 10 saniyede en fazla 100 aday tarar; her aday `REQUIRES_NEW` transaction içinde işlenir. Tek bir hatalı aday diğerlerinin commit'ini geri almaz. Zamanlayıcı gecikse bile oluşturma, koltuk listesi ve tekil rezervasyon sorgusu süresi dolmuş tutmaları uzlaştırabilir. Durum diyagramı, canlı tahsis/geçmiş ayrımı ve migration: [RESERVATIONS.md](RESERVATIONS.md).
 
 `@Version` ek bir tutarlılık kontrolüdür; fazla satışın asıl koruması kontenjan kontrolüyle birlikte pessimistic lock'tur. İkinci seviye cache kapalıdır. JVM içi `synchronized` kullanılmaz; veritabanı kilidi birden fazla uygulama instance'ında da geçerlidir.
 
@@ -76,12 +78,12 @@ erDiagram
   }
 ```
 
-Zamanlar UTC `Instant`, para TL cinsinden `BigDecimal` olarak tutulur. Ödeme eklenirken `Payment`, `Ticket` ve koltuk tabloları sürümlü migration ile eklenir. Mevcut kontenjan modeli numaralı koltuk seçimi sunmaz.
+Zamanlar UTC `Instant`, para TL cinsinden `BigDecimal` olarak tutulur. `006` migration'ı canlı tahsis için `event_seats`, seçim geçmişi için `reservation_seats` ve rezervasyon süre/ödeme alanlarını ekler. Canlı etkinlik/koltuk çifti benzersizdir; geçmiş kayıtlar koltuğun yeniden kullanılmasını engellemez. `Payment` ve `Ticket` modelleri Üye 4'ün kapsamındadır.
 
 ## Kimlik, roller ve rezervasyon sahipliği
 
 `CurrentAccount` oturum özetini, Jakarta Security principal adını ve container rolünü eşleştirir. REST filtresi kimlik ve CSRF kontrolünü istek gövdesi doğrulamasından önce yapar. Faces formu aynı oturum belirtecini gizli alandan doğrular. Her iki giriş noktası servise aynı güvenilir kullanıcı UUID’sini iletir.
 
-`ReservationService.create(userId, command)` sahipliği yeni kayda yazar. `find(userId, id)` ve `cancel(userId, id)` için repository `id` ve `userId` koşullarını birlikte kullanır. İptal bu sorguda yazma kilidini alır. Sahip eşleşmezse yalnızca kaydın varlığı sınanır; kişisel alanlar okunmaz. Varlığı bilinen yabancı kayıt 403, kayıp kayıt 404 üretir. İzin reddi stok veya durum güncellenmeden önce gerçekleşir. Sayfalı liste, koltuk ve ödeme işleri ilgili ekip paketlerindedir.
+`ReservationService.create(userId, command)` sahipliği yeni kayda yazar. `find(userId, id)` ve `cancel(userId, id)` için repository `id` ve `userId` koşullarını birlikte kullanır. Sahip eşleşmezse yalnızca kaydın varlığı sınanır; kişisel alanlar okunmaz. Varlığı bilinen yabancı kayıt 403, kayıp kayıt 404 üretir. İzin reddi stok veya durum güncellenmeden önce gerçekleşir. Sayfalı liste de güvenilir kullanıcı kimliğine göre filtrelenir.
 
 Üye 1 için dört dakikalık demo: ilk dakika kayıt ve tekrar kayıt; ikinci dakika giriş, oturum ve `/me`; üçüncü dakika iki hesapla rezervasyon ve başka sahibin 403 yanıtı; son dakika yetkili iptal, stok iadesi ve çıkış. Yönetim CRUD demosu Üye 2’nin uçlarıyla tamamlanacaktır.

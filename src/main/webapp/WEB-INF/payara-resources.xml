@@ -10,6 +10,8 @@
     <property name="databaseName" value="${ENV=DB_NAME:tickets}"/>
     <property name="user" value="${ENV=DB_USER:tickets}"/>
     <property name="password" value="${ENV=DB_PASSWORD}"/>
+    <!-- EclipseLink binds nullable UUID fields as VARCHAR; let PostgreSQL infer the target column type. -->
+    <property name="stringType" value="unspecified"/>
   </jdbc-connection-pool>
   <jdbc-resource jndi-name="java:app/jdbc/TicketDS" pool-name="TicketPool"/>
 </resources>

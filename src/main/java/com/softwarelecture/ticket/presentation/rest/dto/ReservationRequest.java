@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import java.util.List;
 
 public class ReservationRequest {
     @NotNull
@@ -22,4 +23,6 @@ public class ReservationRequest {
     @Min(1)
     @Max(10)
     public int quantity;
+    @Size(max = 10)
+    public List<@NotNull @Positive Integer> seatNumbers;
 }
