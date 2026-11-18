@@ -53,7 +53,8 @@ public class BookingView {
         try {
             result = reservations.create(formOwner(), new CreateReservation(eventId, customerName, customerEmail, quantity));
             reservationId = result.getId().toString();
-            message(FacesMessage.SEVERITY_INFO, "Rezervasyon oluşturuldu. Numaranızı kaydedin: " + reservationId);
+            message(FacesMessage.SEVERITY_INFO, "Koltuklar ödeme için tutuldu. Son tarih: "
+                    + result.getExpiresAt() + ". Rezervasyon: " + reservationId);
         } catch (DomainException exception) {
             message(FacesMessage.SEVERITY_ERROR, exception.getMessage());
         }
@@ -62,7 +63,12 @@ public class BookingView {
     public void cancel() {
         try {
             result = reservations.cancel(formOwner(), UUID.fromString(reservationId));
-            message(FacesMessage.SEVERITY_INFO, "Rezervasyon iptal edildi; kontenjan iade edildi.");
+            String text = switch (result.getStatus()) {
+                case REFUND_PENDING -> "İade talebi alındı; ödeme iadesi onaylandığında koltuklar serbest kalacak.";
+                case EXPIRED -> "Rezervasyonun süresi doldu; koltuklar serbest bırakıldı.";
+                default -> "Rezervasyon iptal edildi; kontenjan iade edildi.";
+            };
+            message(FacesMessage.SEVERITY_INFO, text);
         } catch (IllegalArgumentException exception) {
             message(FacesMessage.SEVERITY_ERROR, "Geçerli bir rezervasyon numarası girin.");
         } catch (DomainException exception) {
@@ -100,4 +106,6 @@ public class BookingView {
     public String getResultId() { return result == null ? null : result.getId().toString(); }
     public String getResultStatus() { return result == null ? null : result.getStatus().name(); }
     public BigDecimal getResultTotalPrice() { return result == null ? null : result.getTotalPrice(); }
+    public String getResultSeats() { return result == null ? null : result.getSeatNumbers().toString(); }
+    public String getResultExpiresAt() { return result == null || result.getExpiresAt() == null ? null : result.getExpiresAt().toString(); }
 }

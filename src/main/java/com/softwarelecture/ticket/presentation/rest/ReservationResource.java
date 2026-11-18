@@ -6,6 +6,7 @@ import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.presentation.rest.dto.ReservationRequest;
 import com.softwarelecture.ticket.presentation.rest.dto.ReservationResponse;
+import com.softwarelecture.ticket.presentation.rest.dto.ReservationPageResponse;
 import com.softwarelecture.ticket.presentation.security.CurrentAccount;
 import com.softwarelecture.ticket.presentation.security.ProtectedOperation;
 import jakarta.enterprise.context.RequestScoped;
@@ -14,6 +15,8 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -39,9 +42,15 @@ public class ReservationResource {
     @Consumes(MediaType.APPLICATION_JSON)
     public Response create(@NotNull @Valid ReservationRequest request, @Context UriInfo uriInfo) {
         Reservation reservation = reservations.create(account.require().id(), new CreateReservation(request.eventId,
-                request.customerName, request.customerEmail, request.quantity));
+                request.customerName, request.customerEmail, request.quantity, request.seatNumbers));
         URI location = uriInfo.getAbsolutePathBuilder().path(reservation.getId().toString()).build();
         return Response.created(location).entity(new ReservationResponse(reservation)).build();
+    }
+
+    @GET
+    public ReservationPageResponse listMine(@QueryParam("page") @DefaultValue("0") int page,
+                                           @QueryParam("size") @DefaultValue("20") int size) {
+        return new ReservationPageResponse(reservations.listMine(account.require().id(), page, size));
     }
 
     @GET

@@ -12,9 +12,13 @@ Taban: `http://localhost:8080/api`. JSON ve UTF-8 kullanılır. Tarihler ISO 860
 | POST | `/auth/logout` | `204`, boş gövde |
 | GET | `/events` | `200`, gelecek en fazla 100 etkinlik, tarihe göre |
 | GET | `/events/{id}` | `200`, etkinlik detayı |
+| GET | `/events/{id}/seats` | `200`, numaralı koltukların uygunluğu; rezervasyon/kişi kimliği içermez |
 | POST | `/reservations` | `201`, rezervasyon ve `Location` header |
+| GET | `/reservations?page=0&size=20` | `200`, yalnız oturum sahibinin sayfalı rezervasyonları |
 | GET | `/reservations/{uuid}` | `200`, rezervasyon özeti |
-| POST | `/reservations/{uuid}/cancel` | `200`, `CANCELLED` rezervasyon |
+| POST | `/reservations/{uuid}/cancel` | `200`, `CANCELLED`, `EXPIRED` veya ödeme iadesi bekleyen `REFUND_PENDING` |
+
+Numaralı koltuk isteği için oluşturma gövdesine `"seatNumbers":[1,2]` ekleyin; liste uzunluğu `quantity` ile aynı olmalı ve tekrar içermemelidir. Alan verilmezse sunucu uygun ilk koltukları atar. Yanıtlar `seatNumbers` ve `expiresAt` alanlarını da içerir. `ACTIVE` ödeme bekleyen süreli tutmadır; son tarih etkinlik başlangıcından ileriye geçmez. Ayrıntılı örnekler ve Üye 4 ödeme/iade sözleşmesi: [Rezervasyon modülü](RESERVATIONS.md).
 
 ## Kullanıcı kaydı
 
@@ -117,7 +121,9 @@ docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 --single-transaction
   "quantity": 2,
   "totalPrice": 700.00,
   "status": "ACTIVE",
-  "createdAt": "2030-01-01T12:00:00Z"
+  "createdAt": "2030-01-01T12:00:00Z",
+  "expiresAt": "2030-01-01T12:15:00Z",
+  "seatNumbers": [1, 2]
 }
 ```
 
