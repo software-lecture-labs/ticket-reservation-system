@@ -22,6 +22,8 @@ import org.postgresql.util.PSQLException;
 @ApplicationScoped
 @Transactional(Transactional.TxType.NOT_SUPPORTED)
 public class RefundService {
+    private static final String BLOCKING_ATTEMPT_INDEX = "refunds_one_blocking_attempt_per_payment";
+
     private RefundTransactions transactions;
     private PaymentRepository payments;
     private RefundRepository refunds;
@@ -42,22 +44,27 @@ public class RefundService {
 
     public RefundResult refund(UUID userId, UUID paymentId, String idempotencyKey) {
         return submit(() -> transactions.begin(userId, paymentId, idempotencyKey),
-                () -> transactions.findExisting(userId, paymentId, idempotencyKey));
+                () -> transactions.findExisting(userId, paymentId, idempotencyKey), "refunds_requester_key_unique");
     }
 
     /** Internal entry point for system compensation of a charge. */
     public RefundResult compensate(UUID paymentId) {
         return submit(() -> transactions.beginCompensation(paymentId),
-                () -> transactions.findExistingCompensation(paymentId));
+                () -> transactions.findExistingCompensation(paymentId), "refunds_compensation_payment_key_unique");
     }
 
-    private RefundResult submit(Supplier<RefundResult> begin, Supplier<Optional<RefundResult>> findExisting) {
+    private RefundResult submit(Supplier<RefundResult> begin, Supplier<Optional<RefundResult>> findExisting,
+                                String idempotencyConstraint) {
         RefundResult attempt;
         try {
             attempt = begin.get();
         } catch (RuntimeException exception) {
-            if (isRefundAttemptConflict(exception)) {
-                return findExisting.get().orElseThrow(() -> exception);
+            String constraint = refundAttemptConstraint(exception, idempotencyConstraint);
+            if (constraint != null) {
+                return findExisting.get().orElseThrow(() ->
+                        BLOCKING_ATTEMPT_INDEX.equals(constraint)
+                                ? new DomainException(DomainException.Kind.CONFLICT, "Ödeme için başka bir iade girişimi var.")
+                                : exception);
             }
             throw exception;
         }
@@ -91,21 +98,20 @@ public class RefundService {
         }
     }
 
-    private static boolean isRefundAttemptConflict(RuntimeException exception) {
+    private static String refundAttemptConstraint(RuntimeException exception, String idempotencyConstraint) {
         for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
             if (cause instanceof SQLException sqlException) {
                 for (SQLException error = sqlException; error != null; error = error.getNextException()) {
                     if (error instanceof PSQLException postgresError && "23505".equals(error.getSQLState())) {
                         var details = postgresError.getServerErrorMessage();
-                        if (details != null && ("refunds_requester_key_unique".equals(details.getConstraint())
-                                || "refunds_compensation_payment_key_unique".equals(details.getConstraint())
-                                || "refunds_one_blocking_attempt_per_payment".equals(details.getConstraint()))) {
-                            return true;
+                        String constraint = details == null ? null : details.getConstraint();
+                        if (idempotencyConstraint.equals(constraint) || BLOCKING_ATTEMPT_INDEX.equals(constraint)) {
+                            return constraint;
                         }
                     }
                 }
             }
         }
-        return false;
+        return null;
     }
 }

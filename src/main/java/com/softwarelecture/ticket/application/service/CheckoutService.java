@@ -18,6 +18,8 @@ import org.postgresql.util.PSQLException;
 @ApplicationScoped
 @Transactional(Transactional.TxType.NOT_SUPPORTED)
 public class CheckoutService {
+    private static final String BLOCKING_ATTEMPT_INDEX = "payments_one_blocking_attempt_per_reservation";
+
     private CheckoutTransactions transactions;
     private PaymentRepository payments;
     private PaymentGateway gateway;
@@ -38,8 +40,13 @@ public class CheckoutService {
         try {
             attempt = transactions.begin(userId, reservationId, idempotencyKey);
         } catch (RuntimeException exception) {
-            if (isCheckoutAttemptConflict(exception)) {
-                return transactions.findExisting(userId, reservationId, idempotencyKey).orElseThrow(() -> exception);
+            String constraint = checkoutAttemptConstraint(exception);
+            if (constraint != null) {
+                return transactions.findExisting(userId, reservationId, idempotencyKey).orElseThrow(() ->
+                        BLOCKING_ATTEMPT_INDEX.equals(constraint)
+                                ? new DomainException(DomainException.Kind.CONFLICT,
+                                        "Rezervasyon için başka bir ödeme girişimi var.")
+                                : exception);
             }
             throw exception;
         }
@@ -66,20 +73,20 @@ public class CheckoutService {
         }
     }
 
-    private static boolean isCheckoutAttemptConflict(RuntimeException exception) {
+    private static String checkoutAttemptConstraint(RuntimeException exception) {
         for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
             if (cause instanceof SQLException sqlException) {
                 for (SQLException error = sqlException; error != null; error = error.getNextException()) {
                     if (error instanceof PSQLException postgresError && "23505".equals(error.getSQLState())) {
                         var details = postgresError.getServerErrorMessage();
-                        if (details != null && ("payments_owner_key_unique".equals(details.getConstraint())
-                                || "payments_one_blocking_attempt_per_reservation".equals(details.getConstraint()))) {
-                            return true;
+                        String constraint = details == null ? null : details.getConstraint();
+                        if ("payments_owner_key_unique".equals(constraint) || BLOCKING_ATTEMPT_INDEX.equals(constraint)) {
+                            return constraint;
                         }
                     }
                 }
             }
         }
-        return false;
+        return null;
     }
 }

@@ -6,11 +6,13 @@ import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.PaymentStatus;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.domain.model.Ticket;
+import com.softwarelecture.ticket.domain.port.PaymentGateway;
 import com.softwarelecture.ticket.domain.port.PaymentGateway.Outcome;
 import com.softwarelecture.ticket.domain.port.PaymentGateway.Result;
 import com.softwarelecture.ticket.domain.repository.PaymentRepository;
 import com.softwarelecture.ticket.domain.repository.ReservationRepository;
 import com.softwarelecture.ticket.domain.repository.TicketRepository;
+import com.softwarelecture.ticket.presentation.rest.dto.CheckoutResponse;
 import jakarta.persistence.PersistenceException;
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -24,9 +26,11 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class CheckoutTransactionsTest {
     private static final Instant NOW = Instant.parse("2030-01-01T12:00:00Z");
@@ -126,6 +130,47 @@ class CheckoutTransactionsTest {
         assertFalse(replay.newAttempt());
         assertEquals(new CheckoutResult.TicketInfo(storedTicket.getId(), storedTicket.getCode(), NOW),
                 replay.ticket().orElseThrow());
+        CheckoutResponse response = new CheckoutResponse(replay);
+        assertTrue(response.completed);
+        assertEquals(storedTicket.getCode(), response.ticket.code);
+    }
+
+    @Test
+    void replayHidesInvalidatedTicketWithoutChargingOrChangingPaymentHistory() {
+        checkout.begin(OWNER, first.getId(), KEY);
+        Payment payment = payments.rows.getFirst();
+        payment.approve("fake-reference", NOW);
+        Ticket invalidatedTicket = Ticket.issue(payment, NOW);
+        String originalCode = invalidatedTicket.getCode();
+        invalidatedTicket.invalidate(NOW.plusSeconds(1));
+        storedTicket = invalidatedTicket;
+        PaymentGateway gateway = new PaymentGateway() {
+            @Override
+            public Result charge(UUID operationId, BigDecimal amount) {
+                return fail("Checkout replay must not charge the provider.");
+            }
+
+            @Override
+            public Result refund(UUID operationId, String paymentReference, BigDecimal amount) {
+                return fail("Checkout replay must not refund the provider.");
+            }
+        };
+
+        CheckoutResult replay = new CheckoutService(checkout, payments, gateway).checkout(OWNER, first.getId(), KEY);
+        CheckoutResponse response = new CheckoutResponse(replay);
+
+        assertEquals(payment.getId(), replay.paymentId());
+        assertEquals(PaymentStatus.APPROVED, replay.status());
+        assertEquals("APPROVED", response.status);
+        assertFalse(replay.newAttempt());
+        assertTrue(replay.ticket().isEmpty());
+        assertFalse(response.completed);
+        assertNull(response.ticket);
+        assertEquals(Optional.of(replay), checkout.findExisting(OWNER, first.getId(), KEY));
+        assertEquals(List.of(payment), payments.rows);
+        assertEquals(PaymentStatus.APPROVED, payment.getStatus());
+        assertSame(invalidatedTicket, storedTicket);
+        assertEquals(originalCode, storedTicket.getCode());
     }
 
     @Test

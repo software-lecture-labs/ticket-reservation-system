@@ -1,6 +1,7 @@
 package com.softwarelecture.ticket.application.service;
 
 import com.softwarelecture.ticket.application.dto.CheckoutResult;
+import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.PaymentStatus;
 import com.softwarelecture.ticket.domain.port.PaymentGateway;
@@ -142,6 +143,18 @@ class CheckoutServiceTest {
         scenario.beginFailure = new PersistenceException(postgresFailure("23505", "payments_owner_key_unique"));
 
         assertSame(scenario.beginFailure, assertThrows(PersistenceException.class, scenario::checkout));
+        assertEquals(1, scenario.recoveryReads);
+        assertEquals(0, scenario.charges);
+    }
+
+    @Test
+    void rejectsBlockingReservationRaceWhenWinnerUsedAnotherKey() {
+        Scenario scenario = new Scenario(null);
+        scenario.beginFailure = new PersistenceException(
+                postgresFailure("23505", "payments_one_blocking_attempt_per_reservation"));
+
+        DomainException conflict = assertThrows(DomainException.class, scenario::checkout);
+        assertEquals(DomainException.Kind.CONFLICT, conflict.getKind());
         assertEquals(1, scenario.recoveryReads);
         assertEquals(0, scenario.charges);
     }

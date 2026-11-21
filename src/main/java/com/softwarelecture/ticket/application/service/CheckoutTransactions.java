@@ -7,6 +7,7 @@ import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.PaymentStatus;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.domain.model.ReservationStatus;
+import com.softwarelecture.ticket.domain.model.Ticket;
 import com.softwarelecture.ticket.domain.port.PaymentGateway.Result;
 import com.softwarelecture.ticket.domain.repository.PaymentRepository;
 import com.softwarelecture.ticket.domain.repository.ReservationRepository;
@@ -90,6 +91,7 @@ public class CheckoutTransactions {
             }
             Optional<TicketInfo> ticket = payment.getStatus() == PaymentStatus.APPROVED
                     ? tickets.findByPaymentId(payment.getId())
+                            .filter(Ticket::isValid)
                             .map(found -> new TicketInfo(found.getId(), found.getCode(), found.getIssuedAt()))
                     : Optional.empty();
             return new CheckoutResult(payment.getId(), payment.getStatus(), false, ticket);

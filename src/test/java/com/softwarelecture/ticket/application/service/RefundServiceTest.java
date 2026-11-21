@@ -194,6 +194,24 @@ class RefundServiceTest {
         assertEquals(0, scenario.providerCalls);
     }
 
+    @Test
+    void rejectsBlockingRefundRaceWhenWinnerUsedAnotherKey() {
+        Scenario scenario = new Scenario(false, PaymentGateway.Outcome.APPROVED);
+        scenario.winnerAfterSaveFailure = Refund.request(scenario.payment, OWNER, "another-key", NOW);
+        scenario.saveFailure = new PersistenceException(postgresFailure(
+                "23505", "refunds_one_blocking_attempt_per_payment"));
+
+        DomainException conflict = assertThrows(DomainException.class, scenario::request);
+        assertEquals(DomainException.Kind.CONFLICT, conflict.getKind());
+        assertEquals(2, scenario.keyReads);
+        assertEquals(0, scenario.providerCalls);
+    }
+
+    @Test
+    void preservesCompensationKeyViolationOnNormalRefundPath() {
+        assertNoRecovery(postgresFailure("23505", "refunds_compensation_payment_key_unique"));
+    }
+
     private static void assertNoRecovery(SQLException error) {
         Scenario scenario = new Scenario(false, PaymentGateway.Outcome.APPROVED);
         scenario.winnerAfterSaveFailure = scenario.existingRefund(RefundStatus.PENDING);
