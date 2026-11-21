@@ -25,6 +25,8 @@ public class Ticket {
     private String code;
     @Column(name = "issued_at", nullable = false, updatable = false)
     private Instant issuedAt;
+    @Column(name = "invalidated_at")
+    private Instant invalidatedAt;
 
     protected Ticket() {
         // JPA constructor.
@@ -53,9 +55,24 @@ public class Ticket {
         return new Ticket(payment, issuedAt);
     }
 
+    public void invalidate(Instant at) {
+        if (!isValid()) {
+            throw new DomainException(DomainException.Kind.CONFLICT, "Bilet zaten geçersiz.");
+        }
+        if (at == null || at.isBefore(issuedAt)) {
+            throw new DomainException(DomainException.Kind.VALIDATION, "Bilet geçersizleştirme zamanı geçersiz.");
+        }
+        invalidatedAt = at;
+    }
+
+    public boolean isValid() {
+        return invalidatedAt == null;
+    }
+
     public UUID getId() { return id; }
     public UUID getPaymentId() { return paymentId; }
     public UUID getReservationId() { return reservationId; }
     public String getCode() { return code; }
     public Instant getIssuedAt() { return issuedAt; }
+    public Instant getInvalidatedAt() { return invalidatedAt; }
 }

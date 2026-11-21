@@ -7,7 +7,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -26,6 +28,8 @@ class TicketTest {
         assertEquals(payment.getReservationId(), ticket.getReservationId());
         assertEquals(APPROVED, ticket.getIssuedAt());
         assertTrue(ticket.getCode().matches("[0-9a-f]{32}"));
+        assertTrue(ticket.isValid());
+        assertNull(ticket.getInvalidatedAt());
     }
 
     @Test
@@ -54,6 +58,63 @@ class TicketTest {
         assertThrows(DomainException.class, () -> Ticket.issue(null, APPROVED));
         assertThrows(DomainException.class, () -> Ticket.issue(payment, null));
         assertThrows(DomainException.class, () -> Ticket.issue(payment, CREATED));
+    }
+
+    @Test
+    void invalidatesValidTicketAtIssueTime() {
+        Ticket ticket = issuedTicket();
+
+        ticket.invalidate(ticket.getIssuedAt());
+
+        assertFalse(ticket.isValid());
+        assertEquals(APPROVED, ticket.getInvalidatedAt());
+    }
+
+    @Test
+    void rejectsRepeatedInvalidationAndPreservesFirstTimestamp() {
+        Ticket ticket = issuedTicket();
+        Instant invalidatedAt = APPROVED.plusSeconds(1);
+        ticket.invalidate(invalidatedAt);
+
+        DomainException conflict = assertThrows(DomainException.class,
+                () -> ticket.invalidate(invalidatedAt.plusSeconds(1)));
+        assertEquals(DomainException.Kind.CONFLICT, conflict.getKind());
+        assertEquals(invalidatedAt, ticket.getInvalidatedAt());
+    }
+
+    @Test
+    void rejectsMissingOrBackdatedInvalidationWithoutChangingValidity() {
+        Ticket ticket = issuedTicket();
+
+        assertEquals(DomainException.Kind.VALIDATION,
+                assertThrows(DomainException.class, () -> ticket.invalidate(CREATED)).getKind());
+        assertEquals(DomainException.Kind.VALIDATION,
+                assertThrows(DomainException.class, () -> ticket.invalidate(null)).getKind());
+        assertTrue(ticket.isValid());
+        assertNull(ticket.getInvalidatedAt());
+    }
+
+    @Test
+    void preservesTicketIdentityAndHistoryAfterInvalidation() {
+        Ticket ticket = issuedTicket();
+        UUID id = ticket.getId();
+        UUID paymentId = ticket.getPaymentId();
+        UUID reservationId = ticket.getReservationId();
+        String code = ticket.getCode();
+
+        ticket.invalidate(APPROVED.plusSeconds(1));
+
+        assertEquals(id, ticket.getId());
+        assertEquals(paymentId, ticket.getPaymentId());
+        assertEquals(reservationId, ticket.getReservationId());
+        assertEquals(code, ticket.getCode());
+        assertEquals(APPROVED, ticket.getIssuedAt());
+    }
+
+    private static Ticket issuedTicket() {
+        Payment payment = payment();
+        payment.approve("charge-1", APPROVED);
+        return Ticket.issue(payment, APPROVED);
     }
 
     private static Payment payment() {
