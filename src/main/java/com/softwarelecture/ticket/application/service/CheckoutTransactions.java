@@ -7,6 +7,7 @@ import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.PaymentStatus;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.domain.model.ReservationStatus;
+import com.softwarelecture.ticket.domain.port.PaymentGateway.Result;
 import com.softwarelecture.ticket.domain.repository.PaymentRepository;
 import com.softwarelecture.ticket.domain.repository.ReservationRepository;
 import com.softwarelecture.ticket.domain.repository.TicketRepository;
@@ -67,6 +68,19 @@ public class CheckoutTransactions {
     public Optional<CheckoutResult> findExisting(UUID userId, UUID reservationId, String idempotencyKey) {
         ownedReservation(userId, reservationId, idempotencyKey);
         return readExisting(userId, reservationId, idempotencyKey);
+    }
+
+    public CheckoutResult recordProviderResult(UUID paymentId, Result result) {
+        Payment payment = payments.findByIdForUpdate(paymentId).orElseThrow(() ->
+                new DomainException(DomainException.Kind.NOT_FOUND, "Ödeme girişimi bulunamadı."));
+        var now = clock.instant();
+        switch (result.outcome()) {
+            case DECLINED -> payment.decline(now);
+            case UNAVAILABLE -> payment.markUnknown(now);
+            // The reference needs to survive, but reservation confirmation is not available yet.
+            case APPROVED -> payment.requireCompensation(result.reference(), now);
+        }
+        return new CheckoutResult(payment.getId(), payment.getStatus(), true, Optional.empty());
     }
 
     private Optional<CheckoutResult> readExisting(UUID userId, UUID reservationId, String idempotencyKey) {

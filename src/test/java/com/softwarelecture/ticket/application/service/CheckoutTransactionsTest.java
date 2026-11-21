@@ -6,6 +6,8 @@ import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.PaymentStatus;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.domain.model.Ticket;
+import com.softwarelecture.ticket.domain.port.PaymentGateway.Outcome;
+import com.softwarelecture.ticket.domain.port.PaymentGateway.Result;
 import com.softwarelecture.ticket.domain.repository.PaymentRepository;
 import com.softwarelecture.ticket.domain.repository.ReservationRepository;
 import com.softwarelecture.ticket.domain.repository.TicketRepository;
@@ -135,6 +137,33 @@ class CheckoutTransactionsTest {
         assertEquals(2, payments.keyReads);
     }
 
+    @Test
+    void recordsDecisiveDeclineAndAmbiguousResultOnExistingPayments() {
+        CheckoutResult firstAttempt = checkout.begin(OWNER, first.getId(), KEY);
+        CheckoutResult decline = checkout.recordProviderResult(firstAttempt.paymentId(), new Result(Outcome.DECLINED, null));
+        assertEquals(PaymentStatus.DECLINED, decline.status());
+        assertEquals(PaymentStatus.DECLINED, checkout.findExisting(OWNER, first.getId(), KEY).orElseThrow().status());
+
+        CheckoutResult secondAttempt = checkout.begin(OWNER, first.getId(), "second-key");
+        CheckoutResult unavailable = checkout.recordProviderResult(
+                secondAttempt.paymentId(), new Result(Outcome.UNAVAILABLE, null));
+        assertEquals(PaymentStatus.UNKNOWN, unavailable.status());
+        assertTrue(unavailable.ticket().isEmpty());
+    }
+
+    @Test
+    void recordsApprovedProviderReferenceWithoutCompletingCheckout() {
+        CheckoutResult attempt = checkout.begin(OWNER, first.getId(), KEY);
+        CheckoutResult result = checkout.recordProviderResult(
+                attempt.paymentId(), new Result(Outcome.APPROVED, "provider-reference"));
+
+        assertEquals(PaymentStatus.COMPENSATION_REQUIRED, result.status());
+        assertEquals("provider-reference", payments.rows.getFirst().getProviderReference());
+        assertTrue(result.ticket().isEmpty());
+        assertEquals(PaymentStatus.COMPENSATION_REQUIRED,
+                checkout.findExisting(OWNER, first.getId(), KEY).orElseThrow().status());
+    }
+
     private static Reservation reservation() {
         return Reservation.create(OWNER, 1L, "Ada", "ada@example.com", 2, new BigDecimal("125.50"), NOW);
     }
@@ -195,7 +224,7 @@ class CheckoutTransactionsTest {
 
         @Override
         public Optional<Payment> findByIdForUpdate(UUID id) {
-            throw new UnsupportedOperationException();
+            return rows.stream().filter(payment -> payment.getId().equals(id)).findFirst();
         }
     }
 
