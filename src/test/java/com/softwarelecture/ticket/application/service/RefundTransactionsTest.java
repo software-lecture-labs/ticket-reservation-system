@@ -5,6 +5,8 @@ import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.Refund;
 import com.softwarelecture.ticket.domain.model.RefundStatus;
+import com.softwarelecture.ticket.domain.port.PaymentGateway.Outcome;
+import com.softwarelecture.ticket.domain.port.PaymentGateway.Result;
 import com.softwarelecture.ticket.domain.repository.PaymentRepository;
 import com.softwarelecture.ticket.domain.repository.RefundRepository;
 import jakarta.persistence.PersistenceException;
@@ -164,6 +166,20 @@ class RefundTransactionsTest {
         assertEquals(2, refunds.keyReads);
     }
 
+    @Test
+    void recordsProviderApprovalWithoutCompletingAndPreservesOriginalRefundReference() {
+        Payment payment = approvedPayment();
+        RefundResult attempt = transactions.begin(OWNER, payment.getId(), KEY);
+        RefundResult approved = transactions.recordProviderResult(
+                attempt.refundId(), new Result(Outcome.APPROVED, "provider-refund-reference"));
+
+        assertEquals(RefundStatus.PROVIDER_APPROVED, approved.status());
+        assertEquals(Optional.of("provider-refund-reference"), approved.providerReference());
+        assertKind(DomainException.Kind.CONFLICT, () -> transactions.recordProviderResult(
+                attempt.refundId(), new Result(Outcome.APPROVED, "another-reference")));
+        assertEquals("provider-refund-reference", refunds.rows.getFirst().getProviderReference());
+    }
+
     private Payment pendingPayment() {
         Payment payment = Payment.create(RESERVATION_ID, OWNER, "payment-key", AMOUNT, NOW);
         payments.rows.add(payment);
@@ -243,7 +259,7 @@ class RefundTransactionsTest {
 
         @Override
         public Optional<Refund> findByIdForUpdate(UUID id) {
-            throw new UnsupportedOperationException();
+            return rows.stream().filter(refund -> refund.getId().equals(id)).findFirst();
         }
     }
 }

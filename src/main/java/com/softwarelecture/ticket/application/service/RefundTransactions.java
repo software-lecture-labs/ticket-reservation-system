@@ -5,6 +5,7 @@ import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.Refund;
 import com.softwarelecture.ticket.domain.model.RefundStatus;
+import com.softwarelecture.ticket.domain.port.PaymentGateway.Result;
 import com.softwarelecture.ticket.domain.repository.PaymentRepository;
 import com.softwarelecture.ticket.domain.repository.RefundRepository;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -66,6 +67,18 @@ public class RefundTransactions {
     public Optional<RefundResult> findExistingCompensation(UUID paymentId) {
         findPayment(paymentId, false);
         return readCompensation(refunds.findByPaymentId(paymentId), compensationKey(paymentId));
+    }
+
+    public RefundResult recordProviderResult(UUID refundId, Result result) {
+        Refund refund = refunds.findByIdForUpdate(refundId).orElseThrow(() ->
+                new DomainException(DomainException.Kind.NOT_FOUND, "İade girişimi bulunamadı."));
+        var now = clock.instant();
+        switch (result.outcome()) {
+            case DECLINED -> refund.decline(now);
+            case UNAVAILABLE -> refund.markUnknown(now);
+            case APPROVED -> refund.approveByProvider(result.reference(), now);
+        }
+        return result(refund, true);
     }
 
     private RefundResult saveNew(Refund refund, List<Refund> attempts) {
