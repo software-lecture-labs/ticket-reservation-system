@@ -144,6 +144,17 @@ class RefundTransactionsTest {
     }
 
     @Test
+    void blocksAnotherRefundKeyWhenProviderOutcomeIsUnknown() {
+        Payment payment = approvedPayment();
+        RefundResult pending = transactions.begin(OWNER, payment.getId(), KEY);
+        transactions.recordProviderResult(pending.refundId(), new Result(Outcome.UNAVAILABLE, null));
+
+        assertKind(DomainException.Kind.CONFLICT, () -> transactions.begin(OWNER, payment.getId(), "replacement-key"));
+        assertEquals(RefundStatus.UNKNOWN, transactions.begin(OWNER, payment.getId(), KEY).status());
+        assertEquals(1, refunds.rows.size());
+    }
+
+    @Test
     void allowsNewNormalKeyAfterDefinitiveDecline() {
         Payment payment = approvedPayment();
         transactions.begin(OWNER, payment.getId(), KEY);

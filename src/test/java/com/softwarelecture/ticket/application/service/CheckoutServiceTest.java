@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.ServerErrorMessage;
 
@@ -56,6 +58,31 @@ class CheckoutServiceTest {
         assertEquals(PaymentStatus.UNKNOWN, ambiguous.checkout().status());
         assertEquals(unavailable, ambiguous.recorded);
         assertEquals(1, ambiguous.charges);
+    }
+
+    @Test
+    void recordsMissingProviderResultAsUnknownAndDoesNotRechargeOnReplay() {
+        Scenario scenario = new Scenario(null);
+
+        CheckoutResult initial = scenario.checkout();
+        CheckoutResult replay = scenario.checkout();
+
+        assertEquals(PaymentStatus.UNKNOWN, initial.status());
+        assertEquals(new PaymentGateway.Result(PaymentGateway.Outcome.UNAVAILABLE, null), scenario.recorded);
+        assertEquals(initial.paymentId(), replay.paymentId());
+        assertEquals(PaymentStatus.UNKNOWN, replay.status());
+        assertFalse(replay.newAttempt());
+        assertEquals(1, scenario.charges);
+    }
+
+    @ParameterizedTest
+    @EnumSource(PaymentStatus.class)
+    void neverResubmitsAnExistingPaymentAttempt(PaymentStatus status) {
+        Scenario scenario = new Scenario(null);
+        scenario.existing = scenario.result(status, false);
+
+        assertEquals(scenario.existing, scenario.checkout());
+        assertEquals(0, scenario.charges);
     }
 
     @Test

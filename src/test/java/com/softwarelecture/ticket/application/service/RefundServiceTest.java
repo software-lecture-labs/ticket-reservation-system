@@ -1,6 +1,7 @@
 package com.softwarelecture.ticket.application.service;
 
 import com.softwarelecture.ticket.application.dto.RefundResult;
+import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Payment;
 import com.softwarelecture.ticket.domain.model.Refund;
 import com.softwarelecture.ticket.domain.model.RefundStatus;
@@ -88,6 +89,48 @@ class RefundServiceTest {
         ambiguous.providerFailure = new IllegalStateException("Provider response missing");
         assertEquals(RefundStatus.UNKNOWN, ambiguous.request().status());
         assertEquals(1, ambiguous.providerCalls);
+    }
+
+    @Test
+    void recordsMissingProviderResultAsUnknownAndDoesNotResubmitOnReplay() {
+        Scenario scenario = new Scenario(false, PaymentGateway.Outcome.APPROVED);
+        scenario.missingProviderResponse = true;
+
+        RefundResult initial = scenario.request();
+        RefundResult replay = scenario.request();
+
+        assertEquals(RefundStatus.UNKNOWN, initial.status());
+        assertEquals(initial.refundId(), replay.refundId());
+        assertEquals(RefundStatus.UNKNOWN, replay.status());
+        assertTrue(replay.providerReference().isEmpty());
+        assertFalse(replay.newAttempt());
+        assertEquals(1, scenario.providerCalls);
+    }
+
+    @Test
+    void rejectsAnotherUserEvenWhenTheRequestedRefundAlreadyExists() {
+        Scenario scenario = new Scenario(false, PaymentGateway.Outcome.APPROVED);
+        scenario.stored = scenario.existingRefund(RefundStatus.PROVIDER_APPROVED);
+
+        DomainException rejected = assertThrows(DomainException.class,
+                () -> scenario.service.refund(new UUID(0, 3), scenario.payment.getId(), KEY));
+        assertEquals(DomainException.Kind.FORBIDDEN, rejected.getKind());
+        assertEquals(0, scenario.keyReads);
+        assertEquals(0, scenario.providerCalls);
+    }
+
+    @Test
+    void rejectsRacingWinnerIfTheSameKeyBelongsToAnotherPayment() {
+        Scenario scenario = new Scenario(false, PaymentGateway.Outcome.APPROVED);
+        Payment otherPayment = Payment.create(RESERVATION, OWNER, "other-payment-key", AMOUNT, NOW);
+        otherPayment.approve(CHARGE_REFERENCE, NOW);
+        scenario.winnerAfterSaveFailure = Refund.request(otherPayment, OWNER, KEY, NOW);
+        scenario.saveFailure = new PersistenceException(postgresFailure("23505", "refunds_requester_key_unique"));
+
+        DomainException conflict = assertThrows(DomainException.class, scenario::request);
+        assertEquals(DomainException.Kind.CONFLICT, conflict.getKind());
+        assertEquals(2, scenario.keyReads);
+        assertEquals(0, scenario.providerCalls);
     }
 
     @Test
@@ -181,6 +224,7 @@ class RefundServiceTest {
         private PersistenceException saveFailure;
         private PersistenceException resultFailure;
         private RuntimeException providerFailure;
+        private boolean missingProviderResponse;
         private UUID providerOperationId;
         private int providerCalls;
         private int keyReads;
@@ -232,7 +276,7 @@ class RefundServiceTest {
                     if (providerFailure != null) {
                         throw providerFailure;
                     }
-                    return super.refund(operationId, paymentReference, amount);
+                    return missingProviderResponse ? null : super.refund(operationId, paymentReference, amount);
                 }
             };
             RefundTransactions transactions = new RefundTransactions(payments, refunds, Clock.fixed(NOW, ZoneOffset.UTC));

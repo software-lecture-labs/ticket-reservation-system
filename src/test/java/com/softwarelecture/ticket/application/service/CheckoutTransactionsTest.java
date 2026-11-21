@@ -64,6 +64,15 @@ class CheckoutTransactionsTest {
     }
 
     @Test
+    void ownershipIsRequiredForBothReplayAndRecoveryReads() {
+        checkout.begin(OWNER, first.getId(), KEY);
+
+        assertKind(DomainException.Kind.FORBIDDEN, () -> checkout.begin(OTHER_USER, first.getId(), KEY));
+        assertKind(DomainException.Kind.FORBIDDEN, () -> checkout.findExisting(OTHER_USER, first.getId(), KEY));
+        assertEquals(1, payments.rows.size());
+    }
+
+    @Test
     void rejectsInvalidKeysAndUnauthenticatedUser() {
         assertKind(DomainException.Kind.VALIDATION, () -> checkout.begin(OWNER, first.getId(), " "));
         assertKind(DomainException.Kind.VALIDATION, () -> checkout.begin(OWNER, first.getId(), null));
@@ -148,6 +157,7 @@ class CheckoutTransactionsTest {
         CheckoutResult unavailable = checkout.recordProviderResult(
                 secondAttempt.paymentId(), new Result(Outcome.UNAVAILABLE, null));
         assertEquals(PaymentStatus.UNKNOWN, unavailable.status());
+        assertKind(DomainException.Kind.CONFLICT, () -> checkout.begin(OWNER, first.getId(), "replacement-key"));
         assertTrue(unavailable.ticket().isEmpty());
     }
 
