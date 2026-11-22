@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from reservation_smoke import check_member3
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -272,6 +273,7 @@ def run(base):
     with ExitStack() as stack:
         accounts = [stack.enter_context(test_account(base, role)) for role in ("USER", "USER", "ADMIN")]
         check_reservations(base, *accounts)
+        check_member3(base, accounts[0], accounts[1], sql, request, expect)
 
 
 @contextmanager

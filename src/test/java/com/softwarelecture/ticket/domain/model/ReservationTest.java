@@ -26,9 +26,9 @@ class ReservationTest {
     @Test
     void cannotCancelTwice() {
         Reservation reservation = reservation();
-        reservation.cancel();
+        reservation.cancel(reservation.getCreatedAt());
         assertEquals(ReservationStatus.CANCELLED, reservation.getStatus());
-        assertThrows(DomainException.class, reservation::cancel);
+        assertThrows(DomainException.class, () -> reservation.cancel(reservation.getCreatedAt()));
     }
 
     @Test
