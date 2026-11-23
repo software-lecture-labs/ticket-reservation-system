@@ -67,6 +67,20 @@ public class JpaSeatRepository implements SeatRepository {
     }
 
     @Override
+    public int highestAssignedNumber(Long eventId) {
+        return entityManager.createQuery(
+                "SELECT COALESCE(MAX(s.number), 0) FROM EventSeat s WHERE s.eventId=:event AND s.reservationId IS NOT NULL",
+                Integer.class).setParameter("event", eventId).getSingleResult();
+    }
+
+    @Override
+    public void trimUnassignedSeats(Long eventId, int capacity) {
+        entityManager.createQuery(
+                "DELETE FROM EventSeat s WHERE s.eventId=:event AND s.number>:capacity AND s.reservationId IS NULL")
+                .setParameter("event", eventId).setParameter("capacity", capacity).executeUpdate();
+    }
+
+    @Override
     public int release(UUID reservationId) {
         List<EventSeat> allocated = JpaLock.translateConflict(() -> entityManager.createQuery(
                 "SELECT s FROM EventSeat s WHERE s.reservationId=:id ORDER BY s.number", EventSeat.class)

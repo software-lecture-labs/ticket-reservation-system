@@ -10,9 +10,15 @@ Taban: `http://localhost:8080/api`. JSON ve UTF-8 kullanılır. Tarihler ISO 860
 | POST | `/auth/login` | `200`, doğrulanmış kullanıcı |
 | GET | `/auth/me` | `200`, aktif kullanıcı |
 | POST | `/auth/logout` | `204`, boş gövde |
-| GET | `/events` | `200`, gelecek en fazla 100 etkinlik, tarihe göre |
-| GET | `/events/{id}` | `200`, etkinlik detayı |
+| GET | `/events` | `200`, gelecekteki **aktif** etkinlikler (varsayılan en fazla 100), tarihe göre; filtre ve sayfalama için aşağıya bakın. Toplam kayıt sayısı `X-Total-Count` başlığındadır |
+| GET | `/events/{id}` | `200`, etkinlik detayı; pasif etkinlik için `404` |
 | GET | `/events/{id}/seats` | `200`, numaralı koltukların uygunluğu; rezervasyon/kişi kimliği içermez |
+| GET | `/venues` | `200`, mekânlar (şehir, ad, id sırasıyla) |
+| GET | `/categories` | `200`, kategoriler (ad, id sırasıyla) |
+| POST | `/events` | **ADMIN**, `201`, yeni etkinlik ve `Location` header |
+| PUT | `/events/{id}` | **ADMIN**, `200`, güncellenen etkinlik |
+| POST | `/events/{id}/deactivate` | **ADMIN**, `200`, etkinlik pasife alındı (`active:false`) |
+| POST | `/events/{id}/activate` | **ADMIN**, `200`, etkinlik yeniden aktif |
 | POST | `/reservations` | `201`, rezervasyon ve `Location` header |
 | GET | `/reservations?page=0&size=20` | `200`, yalnız oturum sahibinin sayfalı rezervasyonları |
 | GET | `/reservations/{uuid}` | `200`, rezervasyon özeti |
@@ -71,6 +77,7 @@ docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 --single-transaction
 | Yöntem ve yol (/api altında) | Anonim | USER | ADMIN | CSRF |
 |---|---|---|---|---|
 | GET /health, /events, /events/{id}, /venues, /categories | Açık | Açık | Açık | Yok |
+| POST /events, PUT /events/{id}, POST /events/{id}/deactivate, POST /events/{id}/activate | 401 | 403 | İzinli | Gerekli |
 | POST /auth/register, GET /auth/csrf | Açık | Açık | Açık | Yok |
 | POST /auth/login | Açık | Hesap geçişi | Hesap geçişi | Oturuma bağlı |
 | GET /auth/me | 401 | Kendi hesabı | Kendi hesabı | Yok |
@@ -87,7 +94,78 @@ Faces formunun oturumu sona erdiğinde veya hesap değiştiğinde eski görünü
 
 ### Yönetim işlemleri
 
-Mevcut katalog API’si yalnız okuma sağlar. Üye 2, yönetim resource sınıfına veya yazma metoduna `@ProtectedOperation(adminOnly = true)` eklemelidir. Filtre, kimliği ve container rolünü denetler; POST/PUT/PATCH/DELETE için oturum CSRF başlığını da kontrol eder. HTTP dışı sunum girişinde aynı kimlik denetimi `CurrentAccount.requireAdmin()` üzerinden uygulanır. Yönetim ekranını gizlemek bu denetimin yerini tutmaz. Yönetim CRUD uçları ve Üye 3’ün sayfalı rezervasyon listesi henüz mevcut değildir. Liste eklendiğinde sorgu, sayfalama öncesi doğrulanmış kullanıcı UUID’siyle sınırlandırılmalıdır.
+Etkinlik yazma uçları `@ProtectedOperation(adminOnly = true)` ile korunur. Filtre, kimliği ve container rolünü denetler; POST/PUT/PATCH/DELETE için oturum CSRF başlığını da kontrol eder (`X-CSRF-Token`). HTTP dışı sunum girişinde aynı kimlik denetimi `CurrentAccount.requireAdmin()` üzerinden uygulanır. Yönetim ekranını gizlemek bu denetimin yerini tutmaz. Anonim istek 401, USER 403 (`FORBIDDEN`), geçersiz CSRF belirteci 403 (`CSRF`) alır.
+
+#### Katalog filtreleri ve sayfalama (Üye 2)
+
+`GET /api/events` herkese açıktır. Gövde, eski sözleşmedeki gibi **düz bir JSON dizisidir**; toplam kayıt sayısı `X-Total-Count` yanıt başlığında gelir. Parametre verilmezse davranış değişmez: gelecekte başlayan aktif etkinliklerin ilk 100’ü, tarihe göre.
+
+| Parametre | Anlam |
+|---|---|
+| `title` | Başlıkta geçen metin; büyük/küçük harf duyarsız. `%` ve `_` düz karakterdir, joker değildir |
+| `city` | Mekânın şehri; büyük/küçük harf duyarsız tam eşleşme |
+| `categoryId` | `/api/categories` yanıtındaki kimlik |
+| `from`, `to` | ISO-8601 UTC. Başlangıç zamanı `from` dahil, `to` hariç aralıktadır. `from` > `to` ise `400` |
+| `page` | 0’dan başlar, varsayılan `0` |
+| `size` | 1–100, varsayılan `100` |
+
+Filtreler birlikte **VE** ile uygulanır. Sıralama sabittir: başlangıç zamanı, eşitlikte etkinlik kimliği; bu yüzden aynı istek aynı sırayı verir. Geçersiz sayfa/boyut, tarih, sayısal olmayan `categoryId` veya 100 karakterden uzun `title`/`city` `400` `VALIDATION` döner. Aralık dışı sayfa `200` ve boş dizi verir (toplam sayı yine döner).
+
+```
+GET /api/events?city=ankara&categoryId=2&from=2030-05-01T00:00:00Z&to=2030-06-01T00:00:00Z&page=0&size=20
+```
+
+#### İptal/iade ve kapasite ilişkisi
+
+Kapasite kuralı rezervasyon durumuna bakmaz, **koltuk stokuna** bakar: `satılan/tutulan = capacity - availableSeats`. Stok yalnızca koltuk gerçekten serbest kalınca artar:
+
+| Rezervasyon durumu | Koltuk | Kapasiteyi sınırlar mı |
+|---|---|---|
+| `ACTIVE` (süreli tutma), `CONFIRMED` | Atanmış | Evet |
+| `REFUND_PENDING` (ödenmiş iptal, iade bekliyor) | Atanmış kalır | Evet |
+| `CANCELLED`, `EXPIRED`, `REFUNDED` | Serbest bırakıldı | Hayır |
+
+Yani iade tamamlanmadan kapasite düşürülemez; iade tamamlanıp koltuk dönünce düşürülebilir. Bu, Üye 3’ün stok iadesini tek noktada (`releaseInventory`) yapması ve Üye 4’ün iadeyi bu çağrı üzerinden tamamlamasıyla tutarlıdır; katalog tarafında ek bir iptal/iade bağımlılığı yoktur.
+
+#### Etkinlik oluşturma/güncelleme (Üye 2)
+
+`POST /api/events` ve `PUT /api/events/{id}` aynı gövdeyi kabul eder. `venueId` ve `categoryId`, `/api/venues` ve `/api/categories` yanıtlarındaki kimliklerdir; ikisi de zorunludur. Etkinliğin görünen `venue` metni seçilen mekânın adından sunucuda türetilir.
+
+```json
+{"title":"Java Konseri","venueId":1,"categoryId":1,"startsAt":"2030-05-01T18:00:00Z","capacity":100,"ticketPrice":350.00}
+```
+
+Başarılı yanıt (`201` veya `200`):
+
+```json
+{"id":4,"title":"Java Konseri","venue":"İstanbul Kongre Merkezi","venueId":1,"categoryId":1,
+ "startsAt":"2030-05-01T18:00:00Z","capacity":100,"availableSeats":100,"ticketPrice":350.00,"active":true}
+```
+
+| Kural | Sonuç |
+|---|---|
+| Boş/uzun başlık (en çok 150), `startsAt` geçmişte veya ISO-8601 UTC değil | `400` `VALIDATION` |
+| Fiyat negatif veya 2 haneden fazla kesirli (`0` ücretsiz etkinlik için geçerlidir) | `400` `VALIDATION` |
+| Kapasite 1’den küçük veya 100.000’den büyük | `400` `VALIDATION` |
+| Mekân/kategori eksik veya bulunamadı | `400` `VALIDATION` |
+| Güncellenecek etkinlik yok | `404` `NOT_FOUND` |
+| Yeni kapasite satılan/tutulan koltuk sayısının altında | `409` `CONFLICT` |
+| Yeni kapasite dışında kalan numarada dolu koltuk var | `409` `CONFLICT` |
+| Başlamış etkinliği güncelleme | `409` `CONFLICT` |
+
+Kapasite güncellemesinde satılan/tutulan koltuk sayısı (`capacity - availableSeats`) korunur; `availableSeats` yeni kapasiteye göre yeniden hesaplanır. Kapasite düşerse kimseye atanmamış fazla koltuk satırları silinir, artarsa yeni koltuklar ilk kullanımda üretilir. Güncelleme, rezervasyonlarla aynı etkinlik satırını kilitler; eşzamanlı rezervasyon stoku bozamaz. Fiyat değişikliği mevcut rezervasyonların toplam tutarını etkilemez.
+
+#### Silme yerine pasife alma
+
+Etkinlik silinmez. Rezervasyonu, ödemesi veya bileti olan bir etkinliğin silinmesi veritabanı yabancı anahtarlarıyla engellenir ve geçmişi bozardı. `POST /api/events/{id}/deactivate` etkinliği pasife alır: katalogdan ve `GET /api/events/{id}` yanıtından kalkar, yeni rezervasyon `409` (`Etkinlik satışa kapalı.`) alır. Mevcut rezervasyonlar okunabilir, iptal ve iade akışları çalışmaya devam eder. `POST /api/events/{id}/activate` etkinliği geri açar. İki işlem de tekrarlansa aynı sonucu verir. Şema: [`009-event-management.sql`](../docker/postgres/009-event-management.sql) (`events.active BOOLEAN NOT NULL DEFAULT TRUE`).
+
+Daha önce `008` uygulanmış bir volume için yükseltme:
+
+```powershell
+docker compose exec -T db sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/009-event-management.sql'
+```
+
+Üye 3’ün sayfalı rezervasyon listesi sorgusu, sayfalama öncesi doğrulanmış kullanıcı UUID’siyle sınırlanmıştır.
 
 Public kayıt daima USER oluşturur. Yetkili veritabanı işletmeni, kimliği doğrulanmış belirli bir hesabın `users.id` değerini kontrol ederek rolünü kontrollü bir transaction içinde ADMIN yapabilir. Rol ataması ve geri alma işlemlerini operasyon kaydına geçirin. Container rolü oturum açılırken alınır. Rol değişikliğinin yürürlüğe girmesi için eski oturumlar sonlandırılmalı ve yeni giriş yapılmalıdır.
 

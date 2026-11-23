@@ -3,6 +3,7 @@ package com.softwarelecture.ticket.application.service;
 import com.softwarelecture.ticket.application.dto.CreateReservation;
 import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Event;
+import com.softwarelecture.ticket.domain.model.EventCriteria;
 import com.softwarelecture.ticket.domain.model.EventSeat;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.domain.model.ReservationStatus;
@@ -304,6 +305,22 @@ class ReservationServiceTest {
         public Optional<Event> findByIdForUpdate(Long id) {
             return findById(id);
         }
+
+        @Override
+        public Event save(Event saved) {
+            event = saved;
+            return saved;
+        }
+
+        @Override
+        public List<Event> search(EventCriteria criteria, int offset, int size) {
+            return findUpcoming(criteria.now());
+        }
+
+        @Override
+        public long count(EventCriteria criteria) {
+            return findUpcoming(criteria.now()).size();
+        }
     }
 
     private static class MemoryReservations implements ReservationRepository {
@@ -364,6 +381,17 @@ class ReservationServiceTest {
 
     private static class MemorySeats implements SeatRepository {
         private final Map<Long, List<EventSeat>> values = new HashMap<>();
+
+        @Override
+        public int highestAssignedNumber(Long eventId) {
+            return values.getOrDefault(eventId, List.of()).stream().filter(seat -> !seat.isAvailable())
+                    .mapToInt(EventSeat::getNumber).max().orElse(0);
+        }
+
+        @Override
+        public void trimUnassignedSeats(Long eventId, int capacity) {
+            values.getOrDefault(eventId, new ArrayList<>()).removeIf(seat -> seat.isAvailable() && seat.getNumber() > capacity);
+        }
 
         @Override
         public void ensureSeats(Long eventId, int capacity) {
