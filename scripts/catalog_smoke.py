@@ -93,3 +93,79 @@ def check_catalog(base, user, admin, sql, expect):
                and anonymous.api(path)[0] == 200, "admin reactivates the event")
     finally:
         sql(f"DELETE FROM reservations WHERE event_id={event_id}; DELETE FROM events WHERE id={event_id}")
+
+
+def check_catalog_search(base, admin, sql, expect):
+    """Filters, pagination and deterministic ordering of GET /api/events against the real database."""
+    import uuid
+    from urllib.parse import quote
+
+    anonymous = type(admin[0])(base)
+    marker = "Filtre-" + uuid.uuid4().hex
+    venues = anonymous.api("/api/venues")[1]
+    categories = anonymous.api("/api/categories")[1]
+    v0, v1 = venues[0], venues[1]
+    c0, c1 = categories[0]["id"], categories[1]["id"]
+
+    def iso(days):
+        return (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def create(name, venue, category, days):
+        payload = {"title": f"{marker} {name}", "venueId": venue["id"], "categoryId": category,
+                   "startsAt": iso(days), "capacity": 5, "ticketPrice": 10}
+        status, body, _ = admin[0].api("/api/events", payload, admin[2], "POST")
+        expect(status == 201, f"search fixture {name} created")
+        return body
+
+    def search(query):
+        status, body, headers = anonymous.api("/api/events?" + query)
+        return status, body, headers.get("X-Total-Count")
+
+    def ids(body):
+        return [item["id"] for item in body]
+
+    try:
+        e1 = create("Alfa", v0, c0, 400)
+        e2 = create("Beta", v1, c1, 401)
+        e3 = create("Gama", v0, c1, 402)
+        title = "title=" + quote(marker)
+
+        status, body, total = search(title)
+        expect(status == 200 and ids(body) == [e1["id"], e2["id"], e3["id"]] and total == "3",
+               "title filter returns matches ordered by start time with X-Total-Count")
+        expect(ids(search("title=" + quote(marker.upper()))[1]) == [e1["id"], e2["id"], e3["id"]],
+               "title filter is case-insensitive")
+
+        status, body, total = search(title + "&size=2")
+        expect(ids(body) == [e1["id"], e2["id"]] and total == "3", "first page holds the earliest events")
+        status, body, total = search(title + "&page=1&size=2")
+        expect(ids(body) == [e3["id"]] and total == "3", "second page holds the remainder")
+        status, body, total = search(title + "&page=9&size=2")
+        expect(status == 200 and body == [] and total == "3", "out-of-range page is empty")
+        expect(search(title + "&size=2")[1] == search(title + "&size=2")[1], "repeated queries are deterministic")
+
+        expect(ids(search(title + f"&categoryId={c1}")[1]) == [e2["id"], e3["id"]], "category filter")
+        expect(ids(search(title + f"&categoryId={c0}")[1]) == [e1["id"]], "category filter, other category")
+        expect(ids(search(title + "&city=" + quote(v0["city"].upper()))[1]) == [e1["id"], e3["id"]],
+               "city filter is case-insensitive")
+        expect(ids(search(title + "&city=" + quote(v0["city"]) + f"&categoryId={c1}")[1]) == [e3["id"]],
+               "filters combine with AND")
+        window = f"&from={e2['startsAt']}&to={e3['startsAt']}"
+        expect(ids(search(title + window)[1]) == [e2["id"]], "date range includes from and excludes to")
+
+        # '%' and '_' are literal characters in user input, not LIKE wildcards.
+        expect(search("title=" + quote(marker + "_"))[1] == [], "underscore is not a wildcard")
+        expect(search("title=" + quote(marker + "%"))[1] == [], "percent sign is not a wildcard")
+
+        bad = ["size=0", "size=101", "page=-1", "from=yarin", "to=2030-13-45",
+               f"from={e3['startsAt']}&to={e1['startsAt']}", "categoryId=abc", "categoryId=0",
+               "title=" + "a" * 101, "city=" + "a" * 101]
+        expect(all(search(query)[0] == 400 for query in bad), "invalid filters and paging return 400")
+        status, body, total = search("")
+        expect(status == 200 and total.isdigit() and int(total) >= len(body), "no parameters keeps the old list contract")
+
+        expect(admin[0].api(f"/api/events/{e2['id']}/deactivate", None, admin[2], "POST")[0] == 200, "deactivate fixture")
+        status, body, total = search(title)
+        expect(ids(body) == [e1["id"], e3["id"]] and total == "2", "inactive events leave the filtered catalog")
+    finally:
+        sql(f"DELETE FROM events WHERE title LIKE '{marker}%'")

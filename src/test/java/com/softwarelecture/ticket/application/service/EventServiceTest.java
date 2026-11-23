@@ -1,9 +1,12 @@
 package com.softwarelecture.ticket.application.service;
 
+import com.softwarelecture.ticket.application.dto.EventPage;
+import com.softwarelecture.ticket.application.dto.EventSearch;
 import com.softwarelecture.ticket.application.dto.SaveEvent;
 import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Category;
 import com.softwarelecture.ticket.domain.model.Event;
+import com.softwarelecture.ticket.domain.model.EventCriteria;
 import com.softwarelecture.ticket.domain.model.EventSeat;
 import com.softwarelecture.ticket.domain.model.Venue;
 import com.softwarelecture.ticket.domain.repository.CategoryRepository;
@@ -162,6 +165,37 @@ class EventServiceTest {
         assertEquals(event, service.find(id));
     }
 
+    @Test
+    void searchRejectsInvalidPaging() {
+        for (int[] paging : new int[][] {{-1, 10}, {0, 0}, {0, EventSearch.MAX_SIZE + 1}, {Integer.MAX_VALUE, 2}}) {
+            EventSearch search = new EventSearch(null, null, null, null, null, paging[0], paging[1]);
+            assertEquals(DomainException.Kind.VALIDATION, kindOf(() -> service.search(search)));
+        }
+    }
+
+    @Test
+    void searchRejectsReversedDateRange() {
+        EventSearch search = new EventSearch(START, NOW, null, null, null, 0, 10);
+        assertEquals(DomainException.Kind.VALIDATION, kindOf(() -> service.search(search)));
+    }
+
+    @Test
+    void searchBuildsCriteriaAndReturnsRequestedPage() {
+        for (int i = 0; i < 3; i++) {
+            service.create(command(1L, 1L, START.plusSeconds(i * 60L), 10, "10"));
+        }
+        EventPage page = service.search(new EventSearch(null, null, " Ankara ", 1L, " konser ", 1, 2));
+        assertEquals(1, page.items().size());
+        assertEquals(3, page.totalElements());
+        assertEquals(1, page.page());
+        assertEquals(2, page.size());
+        EventCriteria used = events.lastCriteria;
+        assertEquals("Ankara", used.city());
+        assertEquals("konser", used.title());
+        assertEquals(1L, used.categoryId());
+        assertEquals(NOW, used.now());
+    }
+
     private static void setId(Object target, Long id) throws ReflectiveOperationException {
         Field identity = target.getClass().getDeclaredField("id");
         identity.setAccessible(true);
@@ -171,6 +205,19 @@ class EventServiceTest {
     private static class MemoryEvents implements EventRepository {
         private final Map<Long, Event> values = new HashMap<>();
         private long next = 1;
+        private EventCriteria lastCriteria;
+
+        @Override
+        public List<Event> search(EventCriteria criteria, int offset, int size) {
+            lastCriteria = criteria;
+            List<Event> all = findUpcoming(criteria.now());
+            return all.subList(Math.min(offset, all.size()), Math.min(offset + size, all.size()));
+        }
+
+        @Override
+        public long count(EventCriteria criteria) {
+            return findUpcoming(criteria.now()).size();
+        }
 
         @Override
         public List<Event> findUpcoming(Instant now) {

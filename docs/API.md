@@ -10,7 +10,7 @@ Taban: `http://localhost:8080/api`. JSON ve UTF-8 kullanılır. Tarihler ISO 860
 | POST | `/auth/login` | `200`, doğrulanmış kullanıcı |
 | GET | `/auth/me` | `200`, aktif kullanıcı |
 | POST | `/auth/logout` | `204`, boş gövde |
-| GET | `/events` | `200`, gelecekteki **aktif** en fazla 100 etkinlik, tarihe göre |
+| GET | `/events` | `200`, gelecekteki **aktif** etkinlikler (varsayılan en fazla 100), tarihe göre; filtre ve sayfalama için aşağıya bakın. Toplam kayıt sayısı `X-Total-Count` başlığındadır |
 | GET | `/events/{id}` | `200`, etkinlik detayı; pasif etkinlik için `404` |
 | GET | `/events/{id}/seats` | `200`, numaralı koltukların uygunluğu; rezervasyon/kişi kimliği içermez |
 | GET | `/venues` | `200`, mekânlar (şehir, ad, id sırasıyla) |
@@ -95,6 +95,37 @@ Faces formunun oturumu sona erdiğinde veya hesap değiştiğinde eski görünü
 ### Yönetim işlemleri
 
 Etkinlik yazma uçları `@ProtectedOperation(adminOnly = true)` ile korunur. Filtre, kimliği ve container rolünü denetler; POST/PUT/PATCH/DELETE için oturum CSRF başlığını da kontrol eder (`X-CSRF-Token`). HTTP dışı sunum girişinde aynı kimlik denetimi `CurrentAccount.requireAdmin()` üzerinden uygulanır. Yönetim ekranını gizlemek bu denetimin yerini tutmaz. Anonim istek 401, USER 403 (`FORBIDDEN`), geçersiz CSRF belirteci 403 (`CSRF`) alır.
+
+#### Katalog filtreleri ve sayfalama (Üye 2)
+
+`GET /api/events` herkese açıktır. Gövde, eski sözleşmedeki gibi **düz bir JSON dizisidir**; toplam kayıt sayısı `X-Total-Count` yanıt başlığında gelir. Parametre verilmezse davranış değişmez: gelecekte başlayan aktif etkinliklerin ilk 100’ü, tarihe göre.
+
+| Parametre | Anlam |
+|---|---|
+| `title` | Başlıkta geçen metin; büyük/küçük harf duyarsız. `%` ve `_` düz karakterdir, joker değildir |
+| `city` | Mekânın şehri; büyük/küçük harf duyarsız tam eşleşme |
+| `categoryId` | `/api/categories` yanıtındaki kimlik |
+| `from`, `to` | ISO-8601 UTC. Başlangıç zamanı `from` dahil, `to` hariç aralıktadır. `from` > `to` ise `400` |
+| `page` | 0’dan başlar, varsayılan `0` |
+| `size` | 1–100, varsayılan `100` |
+
+Filtreler birlikte **VE** ile uygulanır. Sıralama sabittir: başlangıç zamanı, eşitlikte etkinlik kimliği; bu yüzden aynı istek aynı sırayı verir. Geçersiz sayfa/boyut, tarih, sayısal olmayan `categoryId` veya 100 karakterden uzun `title`/`city` `400` `VALIDATION` döner. Aralık dışı sayfa `200` ve boş dizi verir (toplam sayı yine döner).
+
+```
+GET /api/events?city=ankara&categoryId=2&from=2030-05-01T00:00:00Z&to=2030-06-01T00:00:00Z&page=0&size=20
+```
+
+#### İptal/iade ve kapasite ilişkisi
+
+Kapasite kuralı rezervasyon durumuna bakmaz, **koltuk stokuna** bakar: `satılan/tutulan = capacity - availableSeats`. Stok yalnızca koltuk gerçekten serbest kalınca artar:
+
+| Rezervasyon durumu | Koltuk | Kapasiteyi sınırlar mı |
+|---|---|---|
+| `ACTIVE` (süreli tutma), `CONFIRMED` | Atanmış | Evet |
+| `REFUND_PENDING` (ödenmiş iptal, iade bekliyor) | Atanmış kalır | Evet |
+| `CANCELLED`, `EXPIRED`, `REFUNDED` | Serbest bırakıldı | Hayır |
+
+Yani iade tamamlanmadan kapasite düşürülemez; iade tamamlanıp koltuk dönünce düşürülebilir. Bu, Üye 3’ün stok iadesini tek noktada (`releaseInventory`) yapması ve Üye 4’ün iadeyi bu çağrı üzerinden tamamlamasıyla tutarlıdır; katalog tarafında ek bir iptal/iade bağımlılığı yoktur.
 
 #### Etkinlik oluşturma/güncelleme (Üye 2)
 

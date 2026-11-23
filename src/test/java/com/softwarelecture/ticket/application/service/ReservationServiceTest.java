@@ -3,6 +3,7 @@ package com.softwarelecture.ticket.application.service;
 import com.softwarelecture.ticket.application.dto.CreateReservation;
 import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Event;
+import com.softwarelecture.ticket.domain.model.EventCriteria;
 import com.softwarelecture.ticket.domain.model.EventSeat;
 import com.softwarelecture.ticket.domain.model.Reservation;
 import com.softwarelecture.ticket.domain.model.ReservationStatus;
@@ -309,6 +310,16 @@ class ReservationServiceTest {
         public Event save(Event saved) {
             event = saved;
             return saved;
+        }
+
+        @Override
+        public List<Event> search(EventCriteria criteria, int offset, int size) {
+            return findUpcoming(criteria.now());
+        }
+
+        @Override
+        public long count(EventCriteria criteria) {
+            return findUpcoming(criteria.now()).size();
         }
     }
 

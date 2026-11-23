@@ -1,9 +1,12 @@
 package com.softwarelecture.ticket.application.service;
 
+import com.softwarelecture.ticket.application.dto.EventPage;
+import com.softwarelecture.ticket.application.dto.EventSearch;
 import com.softwarelecture.ticket.application.dto.SaveEvent;
 import com.softwarelecture.ticket.domain.exception.DomainException;
 import com.softwarelecture.ticket.domain.model.Category;
 import com.softwarelecture.ticket.domain.model.Event;
+import com.softwarelecture.ticket.domain.model.EventCriteria;
 import com.softwarelecture.ticket.domain.model.Venue;
 import com.softwarelecture.ticket.domain.repository.CategoryRepository;
 import com.softwarelecture.ticket.domain.repository.EventRepository;
@@ -40,6 +43,19 @@ public class EventService {
 
     public List<Event> listUpcoming() {
         return events.findUpcoming(clock.instant());
+    }
+
+    /** Filtreli ve sayfalı katalog; yalnızca gelecekteki aktif etkinlikler, sabit sırayla. */
+    public EventPage search(EventSearch search) {
+        int size = search.size();
+        int page = search.page();
+        if (page < 0 || size < 1 || size > EventSearch.MAX_SIZE || page > Integer.MAX_VALUE / size) {
+            throw new DomainException(DomainException.Kind.VALIDATION,
+                    "Sayfa sıfır veya büyük; boyut 1 ile " + EventSearch.MAX_SIZE + " arasında olmalı.");
+        }
+        EventCriteria criteria = new EventCriteria(clock.instant(), search.from(), search.to(), search.city(),
+                search.categoryId(), search.title());
+        return new EventPage(events.search(criteria, page * size, size), page, size, events.count(criteria));
     }
 
     /** Herkese açık okuma: pasif etkinlik katalogda görünmez. */

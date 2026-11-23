@@ -1,5 +1,7 @@
 package com.softwarelecture.ticket.presentation.rest;
 
+import com.softwarelecture.ticket.application.dto.EventPage;
+import com.softwarelecture.ticket.application.dto.EventSearch;
 import com.softwarelecture.ticket.application.dto.SaveEvent;
 import com.softwarelecture.ticket.application.service.EventService;
 import com.softwarelecture.ticket.domain.exception.DomainException;
@@ -10,11 +12,13 @@ import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 import jakarta.validation.constraints.Positive;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
@@ -32,9 +36,20 @@ public class EventResource {
     @Inject
     private EventService events;
 
+    /**
+     * Gövde, eski sözleşmedeki gibi düz bir dizidir; toplam kayıt sayısı {@code X-Total-Count} başlığındadır.
+     * Filtre verilmezse gelecekteki en fazla 100 aktif etkinlik tarihe göre döner.
+     */
     @GET
-    public List<EventResponse> list() {
-        return events.listUpcoming().stream().map(EventResponse::new).toList();
+    public Response list(@QueryParam("from") String from, @QueryParam("to") String to,
+                         @QueryParam("city") String city, @QueryParam("categoryId") String categoryId,
+                         @QueryParam("title") String title,
+                         @QueryParam("page") @DefaultValue("0") int page,
+                         @QueryParam("size") @DefaultValue("100") int size) {
+        EventPage result = events.search(new EventSearch(instant(from, "from"), instant(to, "to"), city,
+                number(categoryId), title, page, size));
+        List<EventResponse> items = result.items().stream().map(EventResponse::new).toList();
+        return Response.ok(items).header("X-Total-Count", result.totalElements()).build();
     }
 
     @GET
@@ -74,6 +89,29 @@ public class EventResource {
     @ProtectedOperation(adminOnly = true)
     public EventResponse activate(@PathParam("id") @Positive Long id) {
         return new EventResponse(events.activate(id));
+    }
+
+    private static Long number(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value.trim());
+        } catch (NumberFormatException exception) {
+            throw new DomainException(DomainException.Kind.VALIDATION, "'categoryId' sayı olmalı.");
+        }
+    }
+
+    private static Instant instant(String value, String field) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value.trim());
+        } catch (DateTimeParseException exception) {
+            throw new DomainException(DomainException.Kind.VALIDATION,
+                    "'" + field + "' ISO-8601 UTC biçiminde olmalı (örn. 2030-01-01T18:00:00Z).");
+        }
     }
 
     private static SaveEvent command(EventRequest request) {
