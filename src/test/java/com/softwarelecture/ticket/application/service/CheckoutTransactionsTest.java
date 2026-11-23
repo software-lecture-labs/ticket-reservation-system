@@ -175,7 +175,7 @@ class CheckoutTransactionsTest {
 
     @Test
     void rejectsNewAttemptForCancelledReservation() {
-        first.cancel();
+        first.cancel(NOW);
         assertKind(DomainException.Kind.CONFLICT, () -> checkout.begin(OWNER, first.getId(), KEY));
         assertTrue(payments.rows.isEmpty());
     }
@@ -243,6 +243,41 @@ class CheckoutTransactionsTest {
 
         @Override
         public void save(Reservation reservation) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<Long> findOwnedEventId(UUID id, UUID userId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<Long> findEventId(UUID id) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<Reservation> findByIdForUpdate(UUID id) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<Reservation> findDueForEventForUpdate(Long eventId, Instant now) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<UUID> findDueIds(Instant now, int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<Reservation> findPageByOwner(UUID userId, int offset, int size) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public long countByOwner(UUID userId) {
             throw new UnsupportedOperationException();
         }
     }
