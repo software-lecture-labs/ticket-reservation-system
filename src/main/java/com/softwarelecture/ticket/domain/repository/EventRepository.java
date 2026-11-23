@@ -9,4 +9,5 @@ public interface EventRepository {
     List<Event> findUpcoming(Instant now);
     Optional<Event> findById(Long id);
     Optional<Event> findByIdForUpdate(Long id);
+    Event save(Event event);
 }

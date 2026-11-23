@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from catalog_smoke import check_catalog
 from reservation_smoke import check_member3
 
 
@@ -274,6 +275,7 @@ def run(base):
         accounts = [stack.enter_context(test_account(base, role)) for role in ("USER", "USER", "ADMIN")]
         check_reservations(base, *accounts)
         check_member3(base, accounts[0], accounts[1], sql, request, expect)
+        check_catalog(base, accounts[0], accounts[2], sql, expect)
 
 
 @contextmanager

@@ -11,4 +11,8 @@ public interface SeatRepository {
     List<EventSeat> findSelectedForUpdate(Long eventId, List<Integer> numbers);
     void assign(List<EventSeat> selected, UUID reservationId);
     int release(UUID reservationId);
+    /** Bir rezervasyona atanmış en büyük koltuk numarası; hiç dolu koltuk yoksa 0. */
+    int highestAssignedNumber(Long eventId);
+    /** Kapasite düşürülürken, sınırın üstündeki ve kimseye atanmamış koltuk satırlarını siler. */
+    void trimUnassignedSeats(Long eventId, int capacity);
 }

@@ -304,6 +304,12 @@ class ReservationServiceTest {
         public Optional<Event> findByIdForUpdate(Long id) {
             return findById(id);
         }
+
+        @Override
+        public Event save(Event saved) {
+            event = saved;
+            return saved;
+        }
     }
 
     private static class MemoryReservations implements ReservationRepository {
@@ -364,6 +370,17 @@ class ReservationServiceTest {
 
     private static class MemorySeats implements SeatRepository {
         private final Map<Long, List<EventSeat>> values = new HashMap<>();
+
+        @Override
+        public int highestAssignedNumber(Long eventId) {
+            return values.getOrDefault(eventId, List.of()).stream().filter(seat -> !seat.isAvailable())
+                    .mapToInt(EventSeat::getNumber).max().orElse(0);
+        }
+
+        @Override
+        public void trimUnassignedSeats(Long eventId, int capacity) {
+            values.getOrDefault(eventId, new ArrayList<>()).removeIf(seat -> seat.isAvailable() && seat.getNumber() > capacity);
+        }
 
         @Override
         public void ensureSeats(Long eventId, int capacity) {

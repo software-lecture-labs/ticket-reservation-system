@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
+import java.util.Optional;
 
 @ApplicationScoped
 public class JpaCategoryRepository implements CategoryRepository {
@@ -16,5 +17,10 @@ public class JpaCategoryRepository implements CategoryRepository {
     public List<Category> findAll() {
         return entityManager.createQuery("SELECT c FROM Category c ORDER BY c.name, c.id", Category.class)
                 .getResultList();
+    }
+
+    @Override
+    public Optional<Category> findById(Long id) {
+        return Optional.ofNullable(entityManager.find(Category.class, id));
     }
 }

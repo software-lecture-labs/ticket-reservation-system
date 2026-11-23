@@ -18,8 +18,16 @@ public class JpaEventRepository implements EventRepository {
 
     @Override
     public List<Event> findUpcoming(Instant now) {
-        return entityManager.createQuery("SELECT e FROM Event e WHERE e.startsAt > :now ORDER BY e.startsAt", Event.class)
+        return entityManager.createQuery("SELECT e FROM Event e WHERE e.active = true AND e.startsAt > :now ORDER BY e.startsAt, e.id", Event.class)
                 .setParameter("now", now).setMaxResults(100).getResultList();
+    }
+
+    @Override
+    public Event save(Event event) {
+        entityManager.persist(event);
+        // Kimliği ve olası kısıt ihlallerini transaction bitmeden görmek için yazmayı hemen yap.
+        entityManager.flush();
+        return event;
     }
 
     @Override
