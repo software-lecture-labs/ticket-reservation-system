@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import java.util.List;
+import java.util.Optional;
 
 @ApplicationScoped
 public class JpaVenueRepository implements VenueRepository {
@@ -17,5 +18,10 @@ public class JpaVenueRepository implements VenueRepository {
         // Sıralama sabit: önce şehir, sonra ad, eşitlikte id (deterministik sonuç).
         return entityManager.createQuery("SELECT v FROM Venue v ORDER BY v.city, v.name, v.id", Venue.class)
                 .getResultList();
+    }
+
+    @Override
+    public Optional<Venue> findById(Long id) {
+        return Optional.ofNullable(entityManager.find(Venue.class, id));
     }
 }

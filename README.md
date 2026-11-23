@@ -29,14 +29,16 @@ Docker dışında Java 21 ile geliştirme, WAR dağıtımı ve sunucuya yayınla
 - Yaklaşan etkinlikleri listeleyen Jakarta Faces ekranı ve REST API.
 - Kullanıcı kaydı ve Jakarta Security ile oturum açma, aktif kullanıcı sorgulama ve çıkış. [Kayıt sözleşmesi ve mevcut veritabanını yükseltme](docs/API.md#kullanıcı-kaydı).
 - Ad, e-posta ve adet doğrulaması; fiyatın sunucuda `BigDecimal` ile hesaplanması.
-- Rezervasyon oluşturma, UUID ile sorgulama ve iptal.
+- Kullanıcıya ait rezervasyonları sayfalama, UUID ile sorgulama ve iptal.
+- Numaralı koltuk seçimi veya otomatik koltuk ataması; herkese açık uygunluk listesi.
+- En fazla 15 dakikalık tutma, Payara zamanlayıcısıyla süre aşımı ve ödeme/iade durum geçişleri.
 - JTA transaction: kontenjan azaltma + rezervasyon kaydı birlikte başarılı olur veya geri alınır.
 - Aynı etkinlik için `PESSIMISTIC_WRITE` kilidi; son bilete eşzamanlı taleplerde fazla satışın önlenmesi.
 - Tekrarlanan iptalde ikinci kez kontenjan iadesinin engellenmesi.
 - PostgreSQL şeması, örnek veri, Docker ve Payara dağıtım yapılandırması.
 - JUnit testleri, ArchUnit katman testleri, Checkstyle, SpotBugs, JaCoCo ve GitHub Actions.
 
-Bu sürüm bir başlangıç iskeletidir. Yönetici CRUD ekranları, numaralı koltuk seçimi, ödeme/iade ve elektronik bilet henüz uygulanmadı. Bu geliştirmeler aşağıdaki altı kişilik planda ayrıldı. Rezervasyon oluşturma, görüntüleme ve iptal giriş gerektirir. ADMIN dahil her kullanıcı yalnız kendi rezervasyonlarına erişir. Yazma işlemleri güncel CSRF belirteci gerektirir.
+Yönetici CRUD ekranları, ödeme/iade sağlayıcısı, elektronik bilet ve görsel koltuk haritası diğer ekip modüllerinde geliştirilecektir. Rezervasyon API'si koltuk seçimini, süreli tutmayı ve ödeme modülünün kullanacağı sunucu içi onay/iade sözleşmesini sağlar. Rezervasyon oluşturma, listeleme, görüntüleme ve iptal giriş gerektirir. ADMIN dahil her kullanıcı yalnız kendi rezervasyonlarına erişir. Yazma işlemleri güncel CSRF belirteci gerektirir. [Üye 3: kullanım, migration ve ödeme entegrasyonu](docs/RESERVATIONS.md).
 
 ## Altı kişilik iş bölümü
 
@@ -102,8 +104,10 @@ $login = @{email=$account.UserName; password=$account.GetNetworkCredential().Pas
 Invoke-RestMethod "$api/auth/login" -Method Post -WebSession $browser -Headers @{'X-CSRF-Token'=$csrf.token} -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($login))
 $csrf = Invoke-RestMethod "$api/auth/csrf" -WebSession $browser
 $headers = @{'X-CSRF-Token'=$csrf.token}
+Invoke-RestMethod "$api/events/1/seats"
 $body = @{eventId=1; customerName='Ada'; customerEmail='ada@example.com'; quantity=1} | ConvertTo-Json
 $reservation = Invoke-RestMethod "$api/reservations" -Method Post -WebSession $browser -Headers $headers -ContentType 'application/json' -Body $body
+Invoke-RestMethod "$api/reservations?page=0&size=20" -WebSession $browser
 Invoke-RestMethod "$api/reservations/$($reservation.id)" -WebSession $browser
 Invoke-RestMethod "$api/reservations/$($reservation.id)/cancel" -Method Post -WebSession $browser -Headers $headers
 ```
