@@ -9,11 +9,13 @@ import java.util.UUID;
 public final class SessionCsrf {
     private static final String ATTRIBUTE = SessionCsrf.class.getName();
 
+    private static final Object TOKEN_LOCK = new Object();
+
     private SessionCsrf() {
     }
 
     public static String token(HttpSession session) {
-        synchronized (session) {
+        synchronized (TOKEN_LOCK) {
             String token = (String) session.getAttribute(ATTRIBUTE);
             if (token == null) {
                 token = UUID.randomUUID().toString();
