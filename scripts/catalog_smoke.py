@@ -153,6 +153,17 @@ def check_catalog_search(base, admin, sql, expect):
         window = f"&from={e2['startsAt']}&to={e3['startsAt']}"
         expect(ids(search(title + window)[1]) == [e2["id"]], "date range includes from and excludes to")
 
+        # Turkish letters: the database lowercases both sides, so "İstanbul" must match however it is typed.
+        istanbul = next(v for v in venues if v["city"].startswith("İst"))
+        e4 = create("İstanbul Gecesi", istanbul, c0, 403)
+        in_istanbul = [item["id"] for item in (e1, e2, e3, e4) if item["venueId"] == istanbul["id"]]
+        for spelling in ("İstanbul", "İSTANBUL", "istanbul", "ISTANBUL"):
+            expect(ids(search(title + "&city=" + quote(spelling))[1]) == in_istanbul,
+                   f"city filter matches '{spelling}' with Turkish letters")
+        for spelling in ("İstanbul Gecesi", "ISTANBUL GECESI", "istanbul gecesi"):
+            expect(ids(search("title=" + quote(marker + " " + spelling))[1]) == [e4["id"]],
+                   f"title filter matches '{spelling}'")
+
         # '%' and '_' are literal characters in user input, not LIKE wildcards.
         expect(search("title=" + quote(marker + "_"))[1] == [], "underscore is not a wildcard")
         expect(search("title=" + quote(marker + "%"))[1] == [], "percent sign is not a wildcard")
@@ -166,6 +177,6 @@ def check_catalog_search(base, admin, sql, expect):
 
         expect(admin[0].api(f"/api/events/{e2['id']}/deactivate", None, admin[2], "POST")[0] == 200, "deactivate fixture")
         status, body, total = search(title)
-        expect(ids(body) == [e1["id"], e3["id"]] and total == "2", "inactive events leave the filtered catalog")
+        expect(ids(body) == [e1["id"], e3["id"], e4["id"]] and total == "3", "inactive events leave the filtered catalog")
     finally:
         sql(f"DELETE FROM events WHERE title LIKE '{marker}%'")

@@ -16,9 +16,8 @@ import java.util.regex.Pattern;
 public class User {
     public enum Role { USER, ADMIN }
 
-    private static final String ATOM = "[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+";
-    private static final String LABEL = "[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?";
-    private static final Pattern EMAIL = Pattern.compile(ATOM + "(?:\\." + ATOM + ")*@" + LABEL + "(?:\\." + LABEL + ")+");
+    private static final Pattern LOCAL_ATOM = Pattern.compile("[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+");
+    private static final Pattern DOMAIN_LABEL = Pattern.compile("[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?");
 
     @Id
     private UUID id;
@@ -36,7 +35,7 @@ public class User {
 
     public static String normalizeEmail(String input) {
         String email = input == null ? "" : input.strip();
-        if (email.length() > 254 || email.indexOf('@') > 64 || !EMAIL.matcher(email).matches()) {
+        if (email.length() > 254 || email.indexOf('@') > 64 || !isWellFormed(email)) {
             throw new DomainException(DomainException.Kind.VALIDATION, "Geçerli bir e-posta adresi gerekli.");
         }
         return email.toLowerCase(Locale.ROOT);
@@ -58,4 +57,23 @@ public class User {
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
     public Role getRole() { return role; }
+
+    private static boolean isWellFormed(String email) {
+        int at = email.indexOf('@');
+        if (at < 1 || at != email.lastIndexOf('@')) {
+            return false;
+        }
+        String[] domain = email.substring(at + 1).split("[.]", -1);
+        return domain.length >= 2 && allMatch(email.substring(0, at).split("[.]", -1), LOCAL_ATOM)
+                && allMatch(domain, DOMAIN_LABEL);
+    }
+
+    private static boolean allMatch(String[] parts, Pattern pattern) {
+        for (String part : parts) {
+            if (!pattern.matcher(part).matches()) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

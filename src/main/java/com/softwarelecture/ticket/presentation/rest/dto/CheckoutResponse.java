@@ -3,6 +3,8 @@ package com.softwarelecture.ticket.presentation.rest.dto;
 import com.softwarelecture.ticket.application.dto.CheckoutResult;
 import com.softwarelecture.ticket.application.dto.CheckoutResult.TicketInfo;
 import com.softwarelecture.ticket.domain.model.PaymentStatus;
+import java.util.Optional;
+import java.util.function.Function;
 
 public final class CheckoutResponse {
     public final String paymentId;
@@ -16,8 +18,8 @@ public final class CheckoutResponse {
         }
         paymentId = result.paymentId().toString();
         status = result.status().name();
-        TicketInfo info = result.status() == PaymentStatus.APPROVED && result.ticket() != null
-                ? result.ticket().orElse(null) : null;
+        TicketInfo info = result.status() == PaymentStatus.APPROVED
+                ? Optional.ofNullable(result.ticket()).flatMap(Function.identity()).orElse(null) : null;
         ticket = info != null && info.id() != null && info.issuedAt() != null
                 && info.code() != null && info.code().matches("[0-9a-f]{32}")
                 ? new TicketResponse(info) : null;

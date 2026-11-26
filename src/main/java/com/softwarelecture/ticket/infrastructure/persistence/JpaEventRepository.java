@@ -2,13 +2,22 @@ package com.softwarelecture.ticket.infrastructure.persistence;
 
 import com.softwarelecture.ticket.domain.model.Event;
 import com.softwarelecture.ticket.domain.model.EventCriteria;
+import com.softwarelecture.ticket.domain.model.Venue;
 import com.softwarelecture.ticket.domain.repository.EventRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.ParameterExpression;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,56 +43,64 @@ public class JpaEventRepository implements EventRepository {
 
     @Override
     public List<Event> search(EventCriteria criteria, int offset, int size) {
-        TypedQuery<Event> query = entityManager.createQuery(
-                "SELECT e FROM Event e WHERE " + where(criteria) + " ORDER BY e.startsAt, e.id", Event.class);
-        return bind(query, criteria).setFirstResult(offset).setMaxResults(size).getResultList();
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Event> query = cb.createQuery(Event.class);
+        Root<Event> event = query.from(Event.class);
+        Map<ParameterExpression<String>, String> texts = new HashMap<>();
+        query.select(event).where(predicates(cb, query, event, criteria, texts))
+                .orderBy(cb.asc(event.get("startsAt")), cb.asc(event.get("id")));
+        return prepared(query, texts).setFirstResult(offset).setMaxResults(size).getResultList();
     }
 
     @Override
     public long count(EventCriteria criteria) {
-        return bind(entityManager.createQuery("SELECT COUNT(e) FROM Event e WHERE " + where(criteria), Long.class),
-                criteria).getSingleResult();
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Long> query = cb.createQuery(Long.class);
+        Root<Event> event = query.from(Event.class);
+        Map<ParameterExpression<String>, String> texts = new HashMap<>();
+        query.select(cb.count(event)).where(predicates(cb, query, event, criteria, texts));
+        return prepared(query, texts).getSingleResult();
     }
 
-    // Yalnız sabit JPQL parçaları birleştirilir; kullanıcı girdisi her zaman parametre olarak bağlanır.
-    private static String where(EventCriteria criteria) {
-        StringBuilder where = new StringBuilder("e.active = true AND e.startsAt > :now");
-        if (criteria.from() != null) {
-            where.append(" AND e.startsAt >= :from");
+    private <T> TypedQuery<T> prepared(CriteriaQuery<T> query, Map<ParameterExpression<String>, String> texts) {
+        TypedQuery<T> typed = entityManager.createQuery(query);
+        for (Map.Entry<ParameterExpression<String>, String> text : texts.entrySet()) {
+            typed.setParameter(text.getKey(), text.getValue());
         }
-        if (criteria.to() != null) {
-            where.append(" AND e.startsAt < :to");
-        }
-        if (criteria.categoryId() != null) {
-            where.append(" AND e.categoryId = :categoryId");
-        }
-        if (criteria.city() != null) {
-            where.append(" AND e.venueId IN (SELECT v.id FROM Venue v WHERE LOWER(v.city) = LOWER(:city))");
-        }
-        if (criteria.title() != null) {
-            where.append(" AND LOWER(e.title) LIKE LOWER(:title) ESCAPE '!'");
-        }
-        return where.toString();
+        return typed;
     }
 
-    private static <T> TypedQuery<T> bind(TypedQuery<T> query, EventCriteria criteria) {
-        query.setParameter("now", criteria.now());
+    // Kullanıcı girdisi hiçbir zaman sorgu metnine eklenmez; metinler parametre olarak bağlanır. Küçük harfe
+    // çevirme iki tarafta da veritabanında yapılır: Java'nın "İ" -> "i̇" çevirisi veritabanının "İ" -> "i"
+    // çevirisinden farklıdır ve "İstanbul" aramasını bozardı.
+    private static Predicate[] predicates(CriteriaBuilder cb, CriteriaQuery<?> query, Root<Event> event,
+                                          EventCriteria criteria, Map<ParameterExpression<String>, String> texts) {
+        List<Predicate> list = new ArrayList<>();
+        list.add(cb.isTrue(event.<Boolean>get("active")));
+        list.add(cb.greaterThan(event.<Instant>get("startsAt"), criteria.now()));
         if (criteria.from() != null) {
-            query.setParameter("from", criteria.from());
+            list.add(cb.greaterThanOrEqualTo(event.<Instant>get("startsAt"), criteria.from()));
         }
         if (criteria.to() != null) {
-            query.setParameter("to", criteria.to());
+            list.add(cb.lessThan(event.<Instant>get("startsAt"), criteria.to()));
         }
         if (criteria.categoryId() != null) {
-            query.setParameter("categoryId", criteria.categoryId());
+            list.add(cb.equal(event.get("categoryId"), criteria.categoryId()));
         }
         if (criteria.city() != null) {
-            query.setParameter("city", criteria.city());
+            Subquery<Long> venues = query.subquery(Long.class);
+            Root<Venue> venue = venues.from(Venue.class);
+            ParameterExpression<String> city = cb.parameter(String.class);
+            texts.put(city, criteria.city());
+            venues.select(venue.<Long>get("id")).where(cb.equal(cb.lower(venue.<String>get("city")), cb.lower(city)));
+            list.add(event.<Long>get("venueId").in(venues));
         }
         if (criteria.title() != null) {
-            query.setParameter("title", "%" + escapeLike(criteria.title()) + "%");
+            ParameterExpression<String> title = cb.parameter(String.class);
+            texts.put(title, "%" + escapeLike(criteria.title()) + "%");
+            list.add(cb.like(cb.lower(event.<String>get("title")), cb.lower(title), '!'));
         }
-        return query;
+        return list.toArray(new Predicate[0]);
     }
 
     /** LIKE joker karakterleri kullanıcı girdisinde düz metin sayılır ('!' kaçış karakteridir). */
